@@ -1,8 +1,8 @@
 {
   "id": "/super-admin.html",
-  "name": "Absensi CAP — Super Admin",
+  "name": "CAKRA APP — Super Admin",
   "short_name": "CAP Super Admin",
-  "description": "Aplikasi super admin untuk Absensi CAP",
+  "description": "Aplikasi super admin untuk CAKRA APP",
   "start_url": "./super-admin.html",
   "scope": "./",
   "display": "standalone",
