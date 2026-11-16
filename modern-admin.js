@@ -65,6 +65,7 @@
 
   /* ---------- angka beranimasi ---------- */
   function animasi(el) {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     if (el.dataset.anim === '1') return;
     var m = String(el.textContent).trim().match(/^(\d+)(\.\d+)?(%?)$/); if (!m) return;
     el.dataset.anim = '1';
