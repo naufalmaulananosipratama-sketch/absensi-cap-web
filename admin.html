@@ -48,7 +48,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="CAKRA APP Admin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains&#43;Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;600;700;800&amp;family=JetBrains&#43;Mono:wght@500;600&amp;display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <!-- xlsx-js-style: fork SheetJS 0.18.5 yang BISA menulis warna/style sel (versi
      cdnjs biasa tidak bisa, cuma baca) - API sama persis, dipakai juga oleh
@@ -307,6 +307,7 @@
     #slip-preview-cetak{position:absolute; left:0; top:0; width:100%; box-shadow:none; border:none;}
   }
 </style>
+<link rel="stylesheet" href="tema-admin.css?v=1">
 </head>
 <body>
 
@@ -320,7 +321,7 @@
 
 <section id="screen-login" class="center-screen">
   <div class="login-card">
-    <div class="brand">PT CAKRA ADIDAYA PERKASA</div>
+    <img class="login-logo" src="logo-cakra.png" alt="CAKRA APP"><div class="brand">PT CAKRA ADIDAYA PERKASA</div>
     <h1 id="login-judul">Panel Admin</h1>
     <div class="muted" id="subtitle-klien" style="text-align:center; margin:-2px 0 14px; font-size:13px;"></div>
     <label id="label-kode-koordinator" class="hidden">Kode Koordinator</label>
@@ -333,7 +334,7 @@
 
 <section id="screen-pilih-lokasi" class="center-screen hidden">
   <div class="login-card" style="max-width:420px;">
-    <div class="brand">PT CAKRA ADIDAYA PERKASA</div>
+    <img class="login-logo" src="logo-cakra.png" alt="CAKRA APP"><div class="brand">PT CAKRA ADIDAYA PERKASA</div>
     <h1 style="font-size:19px;">Pilih Lokasi</h1>
     <p class="muted" style="text-align:center; margin:-2px 0 14px; font-size:13px;" id="subtitle-koordinator"></p>
     <label>Lokasi Tanggung Jawab Anda</label>
@@ -347,7 +348,7 @@
 <div class="app" id="app">
   <header class="top">
     <div class="brand-block">
-      <img src="icon-192.png" alt="logo" style="width:30px; height:30px; border-radius:7px;">
+      <img class="logo-brand" src="logo-cakra.png" alt="CAKRA APP">
       <div class="display" id="brand-header">CAKRA APP</div>
       <span class="role-tag" id="role-tag">-</span>
     </div>
@@ -3340,5 +3341,6 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 }
 </script>
+<script src="modern-admin.js?v=1"></script>
 </body>
 </html>
