@@ -69,8 +69,10 @@
       teks = 'Belum absen masuk hari ini';
     }
     var p = Math.min(detik / TARGET_DETIK, 1);
-    bar.style.strokeDasharray = KELILING;
-    bar.style.strokeDashoffset = KELILING * (1 - p);
+    var rr = parseFloat(bar.getAttribute("r")) || 44, K = 2 * Math.PI * rr;
+    bar.style.strokeDasharray = K;
+    bar.style.strokeDashoffset = K * (1 - p);
+    window.__capProgres = p;
     val.textContent = fmtDurasi(detik);
     if (note) note.textContent = teks;
   }
@@ -180,13 +182,82 @@
       if (s.indexOf('.') > -1) { sedang = true; j.textContent = s.replace(/\./g, ':'); sedang = false; }
     }).observe(j, { childList: true, characterData: true, subtree: true });
   })();
+
+
+  /* ikon Orb sesuai kondisi */
+  var SV = function (d) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>'; };
+  var IKON_ORB = {
+    masuk: SV('<path d="M15 3h3a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3h-3"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/>'),
+    pulang: SV('<path d="M9 21H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h3"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>'),
+    selesai: SV('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>'),
+    mati: SV('<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/><path d="M4 4l16 16" stroke-width="1.8"/>')
+  };
+  /* ---------- ORB: satu tombol pintar (Mulai Shift / Akhiri Shift) ---------- */
+  function orbUpdate() {
+    var orb = $('orb'); if (!orb) return;
+    var m = $('btn-presensi-masuk'), p = $('btn-presensi-pulang'), st = status();
+    var mode = 'mati', label = 'Menunggu lokasi', sub = ($('gps-status') && $('gps-status').textContent.trim()) || 'Mencari sinyal GPS...';
+    if (m && !m.disabled && m.classList.contains('btn-navy')) { mode = 'masuk'; label = 'Mulai Shift'; sub = 'Ketuk untuk absen masuk'; }
+    else if (p && !p.disabled && p.classList.contains('btn-navy')) { mode = 'pulang'; label = 'Akhiri Shift'; sub = 'Ketuk untuk absen pulang'; }
+    else if (st.sudahClockOut && !st.shiftAktif) { mode = 'selesai'; label = 'Shift Selesai'; sub = 'Terima kasih, sampai besok'; }
+    else { label = st.shiftAktif ? 'Belum bisa pulang' : 'Belum bisa masuk'; }
+    if (orb.dataset.mode !== mode) { var ik = orb.querySelector('.orb-ic'); if (ik) ik.innerHTML = IKON_ORB[mode] || IKON_ORB.mati; }
+    orb.className = 'orb orb-' + mode; orb.dataset.mode = mode;
+    var l = $('orb-label'), s = $('orb-sub');
+    if (l && l.textContent !== label) l.textContent = label;
+    if (s && s.textContent !== sub) s.textContent = sub;
+  }
+  document.addEventListener('click', function (e) {
+    var orb = e.target.closest && e.target.closest('#orb'); if (!orb) return;
+    var mode = orb.dataset.mode;
+    if (mode === 'masuk') { var m = $('btn-presensi-masuk'); if (m && !m.disabled) m.click(); }
+    else if (mode === 'pulang') { var p = $('btn-presensi-pulang'); if (p && !p.disabled) p.click(); }
+    else if (mode === 'mati') { var s = $('orb-sub'); toast((s && s.textContent) || 'Lokasi belum siap.', 'err'); }
+  });
+
+  /* ---------- penanda lokasi satu baris ---------- */
+  function lokasiUpdate() {
+    var chip = $('loc-chip'), teks = $('loc-teks'); if (!chip || !teks) return;
+    var banner = $('gps-banner'), ok = banner && banner.classList.contains('ok');
+    var stt = ($('gps-status') && $('gps-status').textContent.trim()) || '', lok = ($('gps-lokasi') && $('gps-lokasi').textContent.trim()) || '', jr = ($('gps-jarak') && $('gps-jarak').textContent.trim()) || '';
+    var bad = /luar|blokir|tidak|gagal|ditolak/i.test(stt);
+    var s = ok ? 'Dalam jangkauan' + (lok && lok !== '-' ? ' · ' + lok : '') + (jr && jr !== '- m' ? ' · ' + jr : '') : (bad ? stt + (jr && jr !== '- m' ? ' · ' + jr : '') : (stt || 'Mencari lokasi...'));
+    if (teks.textContent !== s) teks.textContent = s;
+    chip.classList.toggle('ok', !!ok); chip.classList.toggle('bad', !ok && bad);
+  }
+
+  /* ---------- lini masa "Hari ini" ---------- */
+  function timelineUpdate() {
+    var st = status(), inEl = $('tl-in'), outEl = $('tl-out'); if (!inEl) return;
+    var jin = st.jamMasuk ? String(st.jamMasuk).slice(0, 5) : '', jout = st.jamPulang ? String(st.jamPulang).slice(0, 5) : '';
+    var a = $('tl-in-jam'), b = $('tl-out-jam'), tot = $('tl-total'), fill = $('tl-bar-fill');
+    if (a) a.textContent = jin || 'Belum'; if (b) b.textContent = jout || 'Belum';
+    inEl.classList.toggle('done', !!(st.sudahClockIn || st.shiftAktif)); outEl.classList.toggle('done', !!st.sudahClockOut);
+    var d = $('home-durasi'); if (tot) tot.textContent = (st.sudahClockIn || st.shiftAktif || st.sudahClockOut) && d ? d.textContent + ' jam' : '—';
+    if (fill) fill.style.width = (st.sudahClockOut ? 100 : Math.round((window.__capProgres || 0) * 100)) + '%';
+  }
+
+  /* ---------- peta bisa dibuka-tutup ---------- */
+  function pasangTombolPeta() {
+    var card = document.querySelector('.card-gps'); if (!card || card.querySelector('.btn-peta')) return;
+    card.classList.add('peta-tutup');
+    var petaEl = $('gps-map'), kartuPeta = petaEl ? petaEl.closest('.card') : null, terpisah = !!(kartuPeta && kartuPeta !== card);
+    if (terpisah) kartuPeta.classList.add('peta-sembunyi');
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'btn-peta'; b.textContent = 'Tampilkan peta';
+    var banner = card.querySelector('.gps-banner'); (banner ? banner.parentNode : card).insertBefore(b, banner ? banner.nextSibling : null);
+    b.addEventListener('click', function () {
+      var tutup = card.classList.toggle('peta-tutup'); b.textContent = tutup ? 'Tampilkan peta' : 'Sembunyikan peta';
+      if (terpisah) kartuPeta.classList.toggle('peta-sembunyi', tutup);
+      if (!tutup) setTimeout(function () { try { if (typeof leafletMap !== 'undefined' && leafletMap) leafletMap.invalidateSize(); } catch (e) {} }, 200);
+    });
+  }
   /* ---------- pemicu ---------- */
   function homeTerlihat() { var h = $('screen-home'); return h && !h.classList.contains('hidden'); }
   function tick() {
-    updateSapa(); updateCincin();
+    updateSapa(); updateCincin(); orbUpdate(); lokasiUpdate(); timelineUpdate(); pasangTombolPeta();
     if (homeTerlihat()) muatRingkasan(false);
   }
-  setInterval(tick, 1000);
+  setInterval(tick, 1000); setTimeout(tick, 300);
   setInterval(cekPengingat, 30000);
   var home = $('screen-home');
   if (home && window.MutationObserver) {
