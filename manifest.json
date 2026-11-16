@@ -1,7 +1,7 @@
 {
   "id": "/index.html",
-  "name": "Absensi CAP — Karyawan",
-  "short_name": "Absensi CAP",
+  "name": "CAKRA APP — Karyawan",
+  "short_name": "CAKRA APP",
   "description": "Aplikasi absensi karyawan CAP",
   "start_url": "./index.html",
   "scope": "./",
