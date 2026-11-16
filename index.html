@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Sistem Absensi Karyawan — CAP</title>
+<title>CAKRA APP — Absensi Karyawan</title>
 <link rel="manifest" href="manifest.json">
 <script>
 // iOS membaca start_url dari manifest.json (bukan URL yang sedang dibuka) saat
@@ -23,8 +23,8 @@
     var base = location.origin + location.pathname.replace(/[^/]*$/, '');
     var manifest = {
       id: base + 'index.html' + qs,
-      name: 'Absensi CAP — Karyawan',
-      short_name: 'Absensi CAP',
+      name: 'CAKRA APP — Karyawan',
+      short_name: 'CAKRA APP',
       description: 'Aplikasi absensi karyawan CAP',
       start_url: base + 'index.html' + qs,
       scope: base,
@@ -52,7 +52,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Absensi CAP">
+<meta name="apple-mobile-web-app-title" content="CAKRA APP">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&amp;family=JetBrains&#43;Mono:wght@400;700;800&amp;display=swap" rel="stylesheet">
@@ -391,7 +391,7 @@
   .banner-instal .btn-pasang{background:#fff; color:var(--navy); padding:8px 14px; font-size:13.5px;}
   .banner-instal .btn-tutup{background:transparent; color:rgba(255,255,255,.75); font-size:20px; line-height:1; padding:4px 6px;}
 </style>
-<link rel="stylesheet" href="tema-cap.css?v=2">
+<link rel="stylesheet" href="tema-cap.css?v=3">
 </head>
 <body>
 
@@ -406,7 +406,7 @@
 <section id="screen-login" class="screen center-screen">
   <div class="login-hero">
     <div class="logo" id="logo-slot-login">🅡</div>
-    <div class="app-name">CAP ONE</div>
+    <div class="app-name">CAKRA APP</div>
     <h1>Absensi pintar untuk tim lapangan</h1>
     <p id="ttl-login">Sistem Absensi Karyawan</p>
   </div>
@@ -463,7 +463,7 @@
     <div class="hero-top">
       <div class="brand">
         <div class="logo" id="logo-slot-home">🅡</div>
-        <div class="brand-txt"><span class="app-name">CAP ONE</span><span class="ttl" id="ttl-home">Sistem Absensi Karyawan</span></div>
+        <div class="brand-txt"><span class="app-name">CAKRA APP</span><span class="ttl" id="ttl-home">Sistem Absensi Karyawan</span></div>
       </div>
       <div class="hero-actions">
         <button class="ic-btn" id="btn-tema" type="button" aria-label="Ganti tema terang atau gelap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
@@ -991,7 +991,7 @@
 <div id="toast" class="toast hidden"></div>
 
 <div id="banner-instal" class="banner-instal hidden">
-  <div class="teks"><b>Pasang Absensi CAP</b>Supaya lebih cepat dibuka, pasang aplikasi ini ke layar utama HP Anda.</div>
+  <div class="teks"><b>Pasang CAKRA APP</b>Supaya lebih cepat dibuka, pasang aplikasi ini ke layar utama HP Anda.</div>
   <button class="btn-pasang" id="btn-pasang-app">Pasang</button>
   <button class="btn-tutup" id="btn-tutup-banner-instal" aria-label="Tutup">&times;</button>
 </div>
@@ -1903,7 +1903,7 @@ async function muatSlipGajiInline() {
     '</div>' +
     '<div class="slip-sheet-footer">' +
       '<img src="icon-192.png" alt="Logo CAP">' +
-      '<div><div>Slip gaji ini dibuat dengan aplikasi <b class="slip-sheet-footer-brand">CAP Payslip Generator</b></div>' +
+      '<div><div>Slip gaji ini dibuat dengan aplikasi <b class="slip-sheet-footer-brand">CAKRA APP Payslip Generator</b></div>' +
       '<div>Jika terjadi kesalahan nominal bisa menghubungi Admin</div></div>' +
     '</div>';
 }
@@ -2070,7 +2070,7 @@ function gambarSlipGajiPdf(data) {
   y += 5;
 
   // Logo CAP (sama seperti di header aplikasi, icon-192.png) + teks branding
-  // "CAP Payslip Generator" tebal-biru, baris kedua keterangan kontak
+  // "CAKRA APP Payslip Generator" tebal-biru, baris kedua keterangan kontak
   // admin. Logo diposisikan supaya pusat vertikalnya sejajar dengan pusat
   // vertikal blok teks 2 baris di sampingnya (baseline baris 1 = y, baseline
   // baris 2 = y+4 -> pusat teks sekitar y+1.3), bukan sekadar nempel di atas.
@@ -2083,7 +2083,7 @@ function gambarSlipGajiPdf(data) {
   doc.text('Slip gaji ini dibuat dengan aplikasi ', xTeks, y);
   const lebarAwalFooter = doc.getTextWidth('Slip gaji ini dibuat dengan aplikasi ');
   doc.setFont('helvetica', 'bold'); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
-  doc.text('CAP Payslip Generator', xTeks + lebarAwalFooter, y);
+  doc.text('CAKRA APP Payslip Generator', xTeks + lebarAwalFooter, y);
   doc.setFont('helvetica', 'normal'); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
   doc.text('Jika terjadi kesalahan nominal bisa menghubungi Admin', xTeks, y + 4);
 
@@ -3157,6 +3157,6 @@ window.addEventListener('appinstalled', function () {
   promptInstalTertunda = null;
 });
 </script>
-<script src="modern.js?v=2"></script>
+<script src="modern.js?v=3"></script>
 </body>
 </html>
