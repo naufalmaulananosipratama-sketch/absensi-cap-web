@@ -1,0 +1,3153 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sistem Absensi Karyawan — CAP</title>
+<link rel="manifest" href="manifest.json">
+<script>
+// iOS membaca start_url dari manifest.json (bukan URL yang sedang dibuka) saat
+// "Tambahkan ke Layar Utama" ditekan. Manifest statis tidak punya ?klien=...,
+// jadi begitu dibuka dari ikon, link kebaca tidak lengkap -> muncul "link tidak valid".
+// Di sini manifest dibuat ulang sebagai Blob yang menyisipkan query string saat ini
+// ke dalam start_url, supaya ikon yang terpasang tetap membawa ?klien=... miliknya.
+// PENTING: semua URL di dalam manifest ini harus ABSOLUT (pakai location.origin),
+// bukan relatif ("./index.html"). Blob URL tidak bisa dipakai sebagai dasar untuk
+// resolve URL relatif, jadi kalau ditulis relatif, Safari gagal membaca start_url
+// (dan ikon) dengan benar -> ikon di Home Screen iPhone tetap kebuka tanpa
+// ?klien=... -> muncul layar "link tidak valid".
+(function () {
+  try {
+    var qs = location.search;
+    if (!qs) return;
+    var base = location.origin + location.pathname.replace(/[^/]*$/, '');
+    var manifest = {
+      id: base + 'index.html' + qs,
+      name: 'Absensi CAP — Karyawan',
+      short_name: 'Absensi CAP',
+      description: 'Aplikasi absensi karyawan CAP',
+      start_url: base + 'index.html' + qs,
+      scope: base,
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#eef1f6',
+      theme_color: '#9b1c1c',
+      lang: 'id',
+      icons: [
+        { src: base + 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: base + 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    };
+    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    var link = document.querySelector('link[rel="manifest"]');
+    if (link) link.setAttribute('href', URL.createObjectURL(blob));
+  } catch (e) {}
+})();
+</script>
+<meta name="theme-color" content="#9b1c1c">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Absensi CAP">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains&#43;Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" defer></script>
+<style>
+  :root{
+    --bg:rgba(219,238,253,.6); --card:#ffffff; --border:#e3e7ee;
+    --navy:#9b1c1c; --navy-dark:#6b1212; --navy-soft:#f7ecec;
+    --tan:#e4d9c4; --tan-text:#8a7a5c;
+    --text:#1f2937; --muted:#7c8798;
+    --green-bg:#e7f7ee; --green-text:#1a9a56; --green:#1a9a56;
+    --red-bg:#fdecea; --red-text:#d5453a; --red:#d5453a;
+    --radius:14px; --radius-sm:10px;
+    --shadow:0 1px 2px rgba(16,30,54,.04), 0 4px 14px rgba(16,30,54,.06);
+    --f-body:'Inter',sans-serif; --f-mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:var(--f-body); min-height:100vh; min-height:100dvh; -webkit-tap-highlight-color:transparent; padding-bottom:70px;}
+  body::before{
+    content:''; position:fixed; inset:0;
+    background-image:url('logo-watermark.png'); background-repeat:no-repeat; background-position:center 38%;
+    background-size:min(60vw,260px); opacity:.4; pointer-events:none; z-index:-1;
+  }
+  h1,h2,h3{margin:0; font-weight:700;}
+  .mono{font-family:var(--f-mono);}
+  .muted{color:var(--muted);}
+  .hidden{display:none !important;}
+  a{color:var(--navy); text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  button{font-family:var(--f-body);}
+
+  .screen{max-width:480px; margin:0 auto; padding:0 14px 18px;}
+  .center-screen{min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; justify-content:center; padding:18px 14px;}
+
+
+  .top-banner{
+    position:relative; overflow:hidden; border-radius:0 0 26px 26px;
+    padding:12px 18px 30px; text-align:center; color:#fff; margin-bottom:-16px; min-height:150px;
+  }
+  .top-banner .tb-bg{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:right center; opacity:.8; z-index:0;}
+  .top-banner .tb-fog{position:absolute; inset:0; width:100%; height:100%; background:rgba(13,34,56,.34); z-index:1;}
+  .top-banner .tb-wave{position:absolute; inset:0; width:100%; height:100%; z-index:2; display:block;}
+  .top-banner .tb-toprow{position:relative; z-index:3; display:flex; justify-content:center; align-items:center; margin-bottom:2px;}
+  .top-banner .tb-toprow .tb-icon-btn{position:absolute; top:50%; transform:translateY(-50%);}
+  .top-banner .tb-toprow .tb-icon-btn:first-child{left:0;}
+  .top-banner .tb-toprow .tb-icon-btn:last-child{right:0;}
+  .top-banner.tb-home .tb-toprow .logo{margin:0; width:40px; height:40px; border-radius:12px;}
+  .tb-icon-btn{
+    width:32px; height:32px; border-radius:50%; border:none; cursor:pointer;
+    background:rgba(255,255,255,.16); color:#fff; display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .tb-icon-btn svg{width:16px; height:16px;}
+  .tb-icon-btn .tb-dot{position:absolute; top:2px; right:3px; width:7px; height:7px; border-radius:50%; background:#ff5252; border:1.5px solid var(--navy-dark);}
+  .top-banner .tb-content{position:relative; z-index:3;}
+  .top-banner .app-name{font-size:10px; font-weight:700; letter-spacing:1.5px; opacity:.8; margin-bottom:4px;}
+  .top-banner .logo{
+    width:28px; height:28px; border-radius:8px; background:#fff; margin:0 auto 5px;
+    display:flex; align-items:center; justify-content:center; font-size:14px; box-shadow:0 4px 10px rgba(0,0,0,.25);
+    overflow:hidden;
+  }
+  .top-banner .logo img{width:100%; height:100%; object-fit:contain;}
+  .top-banner .ttl{font-size:11.5px; font-weight:600; opacity:.95;}
+  .top-banner.tb-home{padding:6px 16px 30px; min-height:160px; margin-bottom:-42px;}
+  .top-banner.tb-home .logo{width:56px; height:56px; border-radius:16px; margin:0 auto 6px;}
+  .top-banner.tb-home .app-name{font-size:19px; font-weight:800; letter-spacing:.4px; opacity:1; margin-bottom:2px;}
+  .top-banner.tb-home .ttl{font-size:12.5px; opacity:.92;}
+
+  .card{
+    background:rgba(255,255,255,.96); backdrop-filter:blur(1px); -webkit-backdrop-filter:blur(1px);
+    border:1px solid rgba(23,56,92,.35); border-radius:var(--radius);
+    padding:12px 14px; margin:6px 0; box-shadow:var(--shadow); position:relative; z-index:1;
+  }
+  .card-id-clock{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .id-clock{text-align:right; flex-shrink:0;}
+  .id-clock .clock-date{text-align:right; margin:0; display:flex; align-items:center; justify-content:flex-end; gap:4px;}
+  .id-clock .clock-date svg{width:12px; height:12px; flex-shrink:0;}
+  .id-clock .clock-time{text-align:right; margin:2px 0 0;}
+
+   
+  .login-card{max-width:420px; margin:0 auto; width:100%; position:relative; z-index:10;}
+  label{display:block; font-size:12.5px; color:var(--muted); font-weight:600; margin:9px 0 5px;}
+  label:first-child{margin-top:0;}
+  select,input[type=text],input[type=password],input[type=date],input[type=tel],input[type=number],input[type=datetime-local],input[type=time],textarea{
+    width:100%; background:#fbfcfe; border:1px solid var(--border); color:var(--text);
+    padding:10px 12px; border-radius:var(--radius-sm); font-size:14.5px; font-family:var(--f-body);
+  }
+  select:disabled { background:#eef1f6; opacity:1; color:var(--text); font-weight:600; -webkit-text-fill-color: var(--text); }
+  textarea{resize:vertical; min-height:60px;}
+  input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--navy); outline-offset:1px;}
+  .pin-plain{letter-spacing:10px; font-size:20px; text-align:center; font-family:var(--f-mono);}
+  .login-links{text-align:center; margin-top:12px; font-size:13px; display:flex; flex-direction:column; gap:6px;}
+
+  .btn{
+    display:flex; align-items:center; justify-content:center; gap:8px; width:100%;
+    padding:13px 16px; border-radius:var(--radius-sm); border:1px solid transparent;
+    font-size:14.5px; font-weight:700; cursor:pointer; margin-top:10px; transition:opacity .15s, transform .1s;
+  }
+  .btn:active{transform:scale(.98);}
+  .btn:disabled{opacity:.55; cursor:not-allowed;}
+  .btn-navy{background:var(--navy); color:#fff;}
+  .btn-tan{background:var(--tan); color:var(--tan-text);}
+  .btn-outline{background:#fff; border-color:var(--border); color:var(--navy);}
+  .btn-soft-green{background:var(--green-bg); border-color:rgba(26,154,86,.3); color:var(--green-text);}
+  .btn-soft-red{background:var(--red-bg); border-color:rgba(213,69,58,.3); color:var(--red-text);}
+  .btn-sm-outline{width:auto; margin-top:8px; padding:9px 14px; font-size:13px; background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--navy); font-weight:700; cursor:pointer;}
+  .dyn-box{background:#fbfcfe; border:1px dashed var(--border); border-radius:var(--radius-sm); padding:10px; margin-top:10px; position:relative;}
+  .dyn-box-title{font-size:11px; font-weight:700; color:var(--muted); margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;}
+  .dyn-box-title .btn-hapus{background:none; border:none; color:var(--red); font-weight:700; font-size:12px; cursor:pointer; padding:2px 6px;}
+  .dyn-box .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .dyn-foto-row{display:flex; align-items:center; gap:10px; margin-top:8px;}
+  .dyn-foto-row img{width:48px; height:48px; object-fit:cover; border-radius:8px; flex-shrink:0; border:1px solid var(--border);}
+  .dyn-foto-row .ket{flex:1; font-size:13px; color:var(--text);}
+  .kronologi-row{display:flex; gap:8px; align-items:flex-start; margin-top:8px;}
+  .kronologi-row input[type=time]{flex:0 0 100px;}
+  .kronologi-row input[type=text]{flex:1;}
+  .btn-x{background:none; border:none; color:var(--red); font-weight:700; font-size:16px; cursor:pointer; padding:0 6px; flex-shrink:0;}
+  .btn-danger{background:#fff; border-color:var(--red); color:var(--red);}
+  .btn-ghost{background:transparent; color:var(--muted); font-weight:600; font-size:13.5px; padding:8px;}
+  .btn-row{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .btn-row .btn{margin-top:0;}
+  .btn-presensi{justify-content:space-between; padding:12px 10px; border-radius:16px; text-align:left; gap:6px;}
+  .btn-presensi .btn-ic{width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .btn-presensi .btn-ic svg{width:15px; height:15px;}
+  .btn-presensi.btn-navy .btn-ic{background:rgba(255,255,255,.22); color:#fff;}
+  .btn-presensi.btn-tan .btn-ic{background:rgba(255,255,255,.55); color:var(--tan-text);}
+  .btn-presensi .btn-txt{flex:1; min-width:0; text-align:left; display:flex; flex-direction:column; gap:1px;}
+  .btn-presensi .btn-txt b{font-size:12.5px; font-weight:700;}
+  .btn-presensi .btn-txt small{font-size:9.5px; font-weight:500; opacity:.85;}
+  .btn-presensi .btn-arrow{width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .btn-presensi .btn-arrow svg{width:12px; height:12px;}
+  .btn-presensi.btn-navy .btn-arrow{background:rgba(255,255,255,.22); color:#fff;}
+  .btn-presensi.btn-tan .btn-arrow{background:rgba(255,255,255,.55); color:var(--tan-text);}
+  .row-btn{display:flex; align-items:center; gap:10px; width:100%; background:none; border:none; padding:2px; cursor:pointer; text-align:left;}
+  .row-btn .row-ic{width:34px; height:34px; border-radius:50%; background:var(--navy-soft); color:var(--navy); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .row-btn .row-ic svg{width:16px; height:16px;}
+  .row-btn .row-txt{flex:1; min-width:0;}
+  .row-btn .row-txt b{display:block; font-size:13px; font-weight:700; color:var(--text);}
+  .row-btn .row-txt small{display:block; font-size:11px; color:var(--muted); font-weight:500; margin-top:1px;}
+  .row-btn .row-chev{color:var(--muted); display:flex; flex-shrink:0;}
+  .row-btn .row-chev svg{width:16px; height:16px;}
+
+  .card-slipgaji{background:var(--navy-soft);}
+  .card-slipgaji .row-btn .row-ic{background:#fff;}
+
+  .slip-sheet-head{display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:16px;}
+  .slip-sheet-nama-pt{font-weight:700; color:var(--navy); font-size:12.5px;}
+  .slip-sheet-bulan{font-weight:700; color:var(--navy); font-size:16px; margin-top:2px;}
+  .slip-sheet-section-title{font-weight:700; color:var(--text); font-size:13.5px; margin:14px 0 8px;}
+  .slip-sheet-info-cols{border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:4px;}
+  .slip-info-row{display:flex; font-size:12.5px; padding:3px 0;}
+  .slip-info-row .lbl{width:92px; flex-shrink:0; color:var(--muted);}
+  .slip-info-row .colon{width:10px; flex-shrink:0; color:var(--muted);}
+  .slip-info-row .val{font-weight:600; color:var(--text);}
+  .slip-sheet-grid2{display:flex; flex-direction:column; gap:10px; margin-bottom:6px;}
+  .slip-sheet-grid2 table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  .slip-sheet-grid2 table th{background:var(--navy-soft); padding:6px; text-align:left; font-weight:700; color:var(--text);}
+  .slip-sheet-grid2 table th.num{text-align:right;}
+  .slip-sheet-grid2 table td{padding:6px; border-bottom:1px solid var(--border);}
+  .slip-sheet-grid2 table td.num{text-align:right;}
+  .slip-total-row td{font-weight:700; background:var(--navy-soft); border-bottom:none;}
+  .slip-sheet-thp{display:flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; margin:16px 0;}
+  .slip-sheet-thp-left{flex:1; padding:10px 12px;}
+  .slip-sheet-thp-right{width:110px; flex-shrink:0; background:#e3f2e6; display:flex; align-items:center; justify-content:flex-end; padding:0 12px; font-weight:700; font-size:14.5px; color:var(--text);}
+  .slip-sheet-thp-label{font-weight:700; color:var(--text); font-size:13px;}
+  .slip-sheet-bottom{display:flex; flex-wrap:wrap; gap:14px; margin-top:18px;}
+  .slip-sheet-bottom>div{flex:1 1 120px;}
+  .slip-sheet-ttd-space{height:34px;}
+  .slip-sheet-ttd-nama{font-weight:700; font-size:13px;}
+  .slip-sheet-footer{display:flex; align-items:center; gap:7px; margin-top:18px; padding-top:10px; border-top:1px solid var(--border); font-size:10px; text-align:left; color:var(--muted);}
+  .slip-sheet-footer img{width:18px; height:18px; object-fit:contain; border-radius:4px; flex-shrink:0;}
+  .slip-sheet-footer-brand{color:var(--navy); font-weight:700;}
+
+   
+  .id-row{display:flex; align-items:center; gap:10px;}
+  .avatar-wrap{position:relative; flex-shrink:0;}
+  .avatar-cam{
+    position:absolute; bottom:-2px; right:-2px; width:18px; height:18px; border-radius:50%;
+    background:var(--navy); color:#fff; display:flex; align-items:center; justify-content:center; border:2px solid #fff;
+  }
+  .avatar-cam svg{width:10px; height:10px;}
+  .avatar{
+    width:50px; height:50px; border-radius:50%; background:var(--navy); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; flex-shrink:0;
+    overflow:hidden;
+  }
+  .avatar img{width:100%; height:100%; object-fit:cover;}
+  .id-name{font-size:15px; font-weight:700;}
+  .id-role{font-size:11.5px; color:var(--muted); margin-top:1px;}
+
+  .clock-date{text-align:center; font-size:11.5px; color:var(--muted); font-weight:600;}
+  .clock-time{text-align:center; font-family:var(--f-mono); font-size:20px; font-weight:700; color:var(--navy); margin:2px 0 0;}
+  .status-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  #screen-home .card-id-clock{margin-bottom:3px; position:relative; z-index:10;}
+  #screen-home .status-grid{margin:3px 0;}
+  #screen-home .card-gps{margin-top:3px;}
+  .status-card{display:flex; align-items:center; gap:8px; padding:11px 10px;}
+  .status-ic{width:34px; height:34px; border-radius:50%; background:var(--navy-soft); color:var(--navy); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .status-ic svg{width:16px; height:16px;}
+  .status-card.done .status-ic{background:var(--green-bg); color:var(--green-text);}
+  .status-title{font-size:12px; font-weight:700; color:var(--text); display:block;}
+  .status-title.done{color:var(--green-text);}
+  .status-sub{font-size:9.5px; color:var(--muted); margin-top:1px; line-height:1.25; display:block;}
+
+
+  .gps-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+  .gps-head .ttl{font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:7px;}
+  .gps-head .ttl .ic-wrap{width:22px; height:22px; border-radius:50%; background:var(--green-bg); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .gps-head .ttl .dot{width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block;}
+  .kalibrasi-btn{font-size:10.5px; font-weight:700; padding:6px 12px; border-radius:99px; background:var(--navy-soft); color:var(--navy); display:flex; align-items:center; gap:4px; white-space:nowrap;}
+  .kalibrasi-btn svg{width:11px; height:11px;}
+  .gps-stats{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;}
+  .gps-stat{background:var(--navy-soft); border-radius:var(--radius-sm); padding:9px 10px; display:flex; align-items:center; gap:8px;}
+  .gps-stat .ic{width:28px; height:28px; border-radius:50%; background:#fff; color:var(--navy); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .gps-stat .ic svg{width:14px; height:14px;}
+  .gps-stat .lb{font-size:9.5px; color:var(--muted); font-weight:700; letter-spacing:.3px;}
+  .gps-stat .val{font-size:13.5px; font-weight:700; font-family:var(--f-mono); margin-top:2px;}
+  .gps-banner{
+    display:grid; grid-template-columns:1fr 1fr; gap:10px; position:relative;
+    background:var(--red-bg); border-radius:var(--radius-sm); padding:9px 10px; margin-bottom:0;
+  }
+  .gps-banner::before{content:''; position:absolute; left:50%; top:8px; bottom:8px; width:1px; background:rgba(0,0,0,.08);}
+  .gps-banner.ok{background:var(--green-bg);}
+  .gps-banner-col{display:flex; align-items:flex-start; gap:7px;}
+  .gps-banner-col .ic{width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,.65); color:var(--red-text); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .gps-banner-col .ic svg{width:12px; height:12px;}
+  .gps-banner.ok .gps-banner-col .ic{color:var(--green-text);}
+  .gps-banner .lb{font-size:9px; font-weight:700; letter-spacing:.3px; color:var(--muted);}
+  .gps-banner .val{font-size:12px; font-weight:700; color:var(--red-text);}
+  .gps-banner.ok .val{color:var(--green-text);}
+  .map-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+  .map-head .ttl{font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:7px;}
+  .map-head .ttl .ic-wrap{width:22px; height:22px; border-radius:50%; background:var(--navy-soft); color:var(--navy); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .map-head .ttl .ic-wrap svg{width:12px; height:12px;}
+  .map-head a{font-size:10.5px; font-weight:700; display:flex; align-items:center; gap:4px;}
+  .map-head a svg{width:11px; height:11px;}
+  .gps-map{height:150px; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--border); background:#e5e9ef;}
+  .gps-legend{display:flex; gap:16px; margin-top:8px; font-size:11px; color:var(--muted); font-weight:600;}
+  .gps-legend span{display:flex; align-items:center; gap:5px;}
+  .gps-legend i{width:9px; height:9px; border-radius:50%; display:inline-block;}
+
+  .presensi-caption{display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted); margin-top:6px; font-family:var(--f-mono);}
+
+  .section-lbl{font-size:12.5px; font-weight:700; color:var(--navy); margin:0 0 4px;}
+
+  .riwayat-row{display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:12.5px;}
+  .riwayat-row:last-child{border-bottom:none;}
+  .riwayat-row .tgl{font-weight:600;}
+  .riwayat-row .jam{font-family:var(--f-mono); color:var(--muted);}
+
+  .antrian-box{background:var(--tan); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:12px;}
+  .antrian-judul{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;}
+  .antrian-judul b{font-size:12.5px; color:var(--tan-text);}
+  .antrian-row{display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid rgba(0,0,0,.08); font-size:12px;}
+  .antrian-row:last-child{border-bottom:none;}
+  .antrian-row .status{color:var(--tan-text); font-family:var(--f-mono); font-size:11px;}
+  .btn-upload-ulang{border:none; background:var(--navy); color:#fff; border-radius:8px; padding:6px 10px; font-size:11.5px; font-weight:600;}
+  .btn-upload-ulang:disabled{opacity:.6;}
+
+  .empty-state{text-align:center; padding:20px 10px; color:var(--muted); font-size:13.5px;}
+  .empty-state .big{font-size:24px; margin-bottom:6px;}
+
+   
+  .top-back{
+    display:flex; align-items:center; gap:10px; padding:12px 14px 4px; position:sticky; top:0;
+    background:var(--bg); z-index:5;
+  }
+  .top-back button{background:#fff; border:1px solid var(--border); color:var(--navy); font-size:16px; cursor:pointer; padding:6px 10px; border-radius:8px;}
+  .top-back h2{font-size:16px;}
+
+   
+  .cam-wrap{position:relative; width:100%; aspect-ratio:3/4; background:#000; border-radius:var(--radius-sm); overflow:hidden; border:1px solid var(--border);}
+  .cam-wrap video, .cam-wrap canvas.frame{width:100%; height:100%; object-fit:cover; display:block;}
+  .cam-wrap .scan-box{position:absolute; inset:18% 14%; border:2px solid var(--green); border-radius:8px; pointer-events:none; box-shadow:0 0 0 999px rgba(0,0,0,.35);}
+  .cam-flip{
+    position:absolute; top:10px; right:10px; z-index:5; width:38px; height:38px; border-radius:50%;
+    background:rgba(15,25,40,.6); border:1px solid rgba(255,255,255,.3); color:#fff; font-size:17px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .cam-shot{width:100%; border-radius:var(--radius-sm); border:1px solid var(--border); display:block;}
+  .cam-actions{display:flex; gap:10px; margin-top:8px;}
+  .cam-actions .btn{margin-top:0;}
+
+  .loc-box{display:flex; align-items:center; gap:10px; font-family:var(--f-mono); font-size:12px;}
+  .loc-box .pulse{width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0;}
+  .loc-box .pulse.ok{background:var(--green);}
+  .loc-box .pulse.wait{background:#e8a33d; animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+  .divider-or{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; margin:12px 0;}
+  .divider-or::before,.divider-or::after{content:''; flex:1; height:1px; background:var(--border);}
+
+
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(15,25,40,.55); z-index:60;
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  .modal-sheet{
+    background:var(--card); width:100%; max-width:480px; border-radius:20px 20px 0 0;
+    padding:14px 16px calc(16px + env(safe-area-inset-bottom)); max-height:88vh; overflow-y:auto;
+  }
+  .modal-sheet h3{font-size:15px; margin-bottom:9px;}
+
+
+  .navbar{
+    position:fixed; bottom:0; left:0; right:0; background:#fff;
+    border-top:1px solid var(--border); display:flex; z-index:20;
+    padding-bottom:env(safe-area-inset-bottom); box-shadow:0 -2px 10px rgba(16,30,54,.05);
+  }
+  .navbar button{flex:1; background:none; border:none; color:var(--muted); padding:7px 4px 6px; display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;}
+  .navbar button .ic{font-size:17px;}
+  .navbar button .ic svg{width:19px; height:19px; display:block;}
+  .navbar button .lb{font-size:10.5px; font-weight:600;}
+  .navbar button.active{color:var(--navy);}
+
+  .toast{
+    position:fixed; left:16px; right:16px; bottom:90px; max-width:452px; margin:0 auto;
+    background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:12px 14px; font-size:14px; z-index:70; box-shadow:0 8px 24px rgba(16,30,54,.18);
+  }
+  .toast.ok{border-left:4px solid var(--green);}
+  .toast.err{border-left:4px solid var(--red);}
+
+  .banner-instal{
+    position:fixed; left:16px; right:16px; top:16px; max-width:452px; margin:0 auto;
+    background:var(--navy); color:#fff; border-radius:var(--radius-sm);
+    padding:12px 14px; display:flex; align-items:center; gap:10px; z-index:80;
+    box-shadow:0 8px 24px rgba(16,30,54,.25);
+  }
+  .banner-instal .teks{flex:1; font-size:13.5px; line-height:1.35;}
+  .banner-instal .teks b{display:block; font-size:14px; margin-bottom:2px;}
+  .banner-instal button{border:none; border-radius:8px; cursor:pointer; font-weight:600;}
+  .banner-instal .btn-pasang{background:#fff; color:var(--navy); padding:8px 14px; font-size:13.5px;}
+  .banner-instal .btn-tutup{background:transparent; color:rgba(255,255,255,.75); font-size:20px; line-height:1; padding:4px 6px;}
+</style>
+</head>
+<body>
+
+<section id="screen-klien-invalid" class="screen center-screen hidden">
+  <div class="card login-card" style="text-align:center;">
+    <div style="font-size:40px; margin-bottom:8px;">🔒</div>
+    <h2 style="margin-bottom:8px;">Link Tidak Valid</h2>
+    <p class="muted" id="klien-invalid-pesan">Link absensi ini tidak valid atau sudah tidak aktif. Hubungi admin Anda untuk mendapatkan link yang benar.</p>
+  </div>
+</section>
+
+<section id="screen-login" class="screen center-screen">
+  <div class="top-banner">
+    <img class="tb-bg" src="header-bg.png" alt="">
+    <div class="tb-fog"></div>
+    <svg class="tb-wave" viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="tbGradLogin" x1="0" y1="0" x2="1" y2="0.25"><stop offset="0%" stop-color="#6b1212" stop-opacity="1"/><stop offset="55%" stop-color="#1d4d7a" stop-opacity=".72"/><stop offset="100%" stop-color="#3a7dae" stop-opacity=".45"/></linearGradient></defs><path d="M0,0 H62 C80,0 68,100 46,100 H0 Z" fill="url(#tbGradLogin)"/></svg>
+    <div class="tb-content">
+      <div class="app-name">CAP ONE</div>
+      <div class="logo" id="logo-slot-login">🅡</div>
+      <div class="ttl" id="ttl-login">Sistem Absensi Karyawan</div>
+    </div>
+  </div>
+  <div class="card login-card">
+    <label>Pilih Nama Anda</label>
+    <select id="login-nama"><option value="">-- Pilih Nama --</option></select>
+    <a href="#" id="retry-nama" class="hidden" style="font-size:12px;color:var(--red);margin-top:4px;text-decoration:underline;">Daftar nama gagal dimuat. Ketuk di sini untuk muat ulang.</a>
+
+    <label>PIN (4 digit)</label>
+    <input type="password" id="login-pin" class="pin-plain" maxlength="4" inputmode="numeric" placeholder="••••">
+
+    <button class="btn btn-navy" id="btn-login">Masuk</button>
+
+    <div class="login-links">
+      <span>Belum punya akun? <a href="#" id="link-daftar">Daftar di sini</a></span>
+      <span>Admin? <a href="admin.html">Masuk di sini</a></span>
+    </div>
+  </div>
+</section>
+
+
+<section id="screen-daftar" class="screen hidden">
+  <div class="top-back"><button id="back-daftar">←</button><h2>Daftar Karyawan Baru</h2></div>
+  <div class="card">
+    <label>Nama Lengkap</label>
+    <input type="text" id="daftar-nama" placeholder="Sesuai KTP">
+
+    <label>Bagian Kerja</label>
+    <select id="daftar-bagian">
+      <option value="Security">Security</option>
+      <option value="Cleaning Service">Cleaning Service</option>
+      <option value="Administrasi">Administrasi</option>
+      <option value="Pengemudi">Pengemudi</option>
+      <option value="Tenaga Lapangan">Tenaga Lapangan</option>
+      <option value="Tenaga Produksi">Tenaga Produksi</option>
+      <option value="Tenaga Operator">Tenaga Operator</option>
+      <option value="Lainnya">Lainnya</option>
+    </select>
+
+    <label>Buat PIN (4 digit angka)</label>
+    <input type="tel" maxlength="4" inputmode="numeric" id="daftar-pin" placeholder="••••">
+
+    <label>Ulangi PIN</label>
+    <input type="tel" maxlength="4" inputmode="numeric" id="daftar-pin2" placeholder="••••">
+
+    <button class="btn btn-navy" id="btn-submit-daftar">Kirim Pendaftaran</button>
+    <p class="muted" style="font-size:12px; margin-top:10px;">Akun akan aktif setelah disetujui admin.</p>
+  </div>
+</section>
+
+
+<section id="screen-home" class="screen hidden">
+  <div class="top-banner tb-home">
+    <img class="tb-bg" src="header-bg.png" alt="">
+    <div class="tb-fog"></div>
+    <svg class="tb-wave" viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="tbGradHome" x1="0" y1="0" x2="1" y2="0.25"><stop offset="0%" stop-color="#6b1212" stop-opacity="1"/><stop offset="55%" stop-color="#1d4d7a" stop-opacity=".72"/><stop offset="100%" stop-color="#3a7dae" stop-opacity=".45"/></linearGradient></defs><path d="M0,0 H62 C80,0 68,100 46,100 H0 Z" fill="url(#tbGradHome)"/></svg>
+    <div class="tb-toprow">
+      <button class="tb-icon-btn" type="button" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
+      <div class="logo" id="logo-slot-home">🅡</div>
+      <button class="tb-icon-btn" type="button" aria-label="Notifikasi"><span class="tb-dot"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></button>
+    </div>
+    <div class="tb-content">
+      <div class="app-name">CAP ONE</div>
+      <div class="ttl" id="ttl-home">Sistem Absensi Karyawan</div>
+    </div>
+  </div>
+
+  <div class="card card-id-clock">
+    <div class="id-row">
+      <div class="avatar-wrap">
+        <div class="avatar" id="home-avatar">-</div>
+        <span class="avatar-cam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></span>
+      </div>
+      <div>
+        <div class="id-name" id="home-nama">-</div>
+        <div class="id-role" id="home-bagian">-</div>
+      </div>
+    </div>
+    <div class="id-clock">
+      <div class="clock-date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg><span id="home-tanggal">-</span></div>
+      <div class="clock-time" id="home-jam">--:--:--</div>
+    </div>
+  </div>
+
+  <div class="status-grid">
+    <div class="card status-card" id="status-card-in">
+      <span class="status-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+      <div><span class="status-title" id="pill-in">Belum Clock In</span><span class="status-sub" id="status-sub-in">Anda belum melakukan clock in hari ini</span></div>
+    </div>
+    <div class="card status-card" id="status-card-out">
+      <span class="status-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>
+      <div><span class="status-title" id="pill-out">Belum Clock Out</span><span class="status-sub" id="status-sub-out">Anda belum melakukan clock out hari ini</span></div>
+    </div>
+  </div>
+
+  <div class="card card-gps">
+    <div class="gps-head">
+      <span class="ttl"><span class="ic-wrap"><span class="dot" id="gps-dot"></span></span>Status Geolokasi Realtime</span>
+      <a href="#" id="link-kalibrasi" class="kalibrasi-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>Kalibrasi GPS</a>
+    </div>
+    <div class="gps-stats">
+      <div class="gps-stat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span><div><div class="lb">JARAK KANTOR</div><div class="val" id="gps-jarak">- m</div></div></div>
+      <div class="gps-stat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg></span><div><div class="lb">AKURASI GPS</div><div class="val" id="gps-akurasi">± - m</div></div></div>
+    </div>
+    <div class="gps-banner" id="gps-banner">
+      <div class="gps-banner-col"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></span><div><div class="lb">STATUS KEHADIRAN</div><div class="val" id="gps-status">Mencari lokasi...</div></div></div>
+      <div class="gps-banner-col"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span><div><div class="lb">LOKASI TERDEKAT</div><div class="val" id="gps-lokasi" style="color:var(--text);">-</div></div></div>
+    </div>
+    <div class="gps-banner hidden" id="gps-denied-banner" style="display:block; background:var(--red-bg); padding:10px; margin-bottom:0;">
+      <div style="font-weight:700; color:var(--red-text); margin-bottom:4px; font-size:12px;">📍 Akses Lokasi Diblokir</div>
+      <div class="muted" style="font-size:11px; margin-bottom:6px;">Anda pernah menolak izin lokasi, sehingga browser tidak akan menampilkan permintaan izin ini lagi secara otomatis. Aktifkan izin lokasi secara manual:</div>
+      <div class="muted" style="font-size:11px; margin-bottom:8px;">1. Ketuk ikon 🔒 / ⓘ di sebelah alamat website ini di browser Anda.<br>2. Cari menu "Lokasi/Location" lalu ubah ke "Izinkan/Allow".<br>3. Tekan tombol di bawah ini.</div>
+      <button class="btn btn-navy" id="btn-retry-gps" type="button" style="margin-top:0;">🔄 Coba Lagi</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="map-head">
+      <span class="ttl"><span class="ic-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></span>Lokasi Anda</span>
+      <a href="#" id="link-gmaps" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>Lihat di Google Maps</a>
+    </div>
+    <div class="gps-map" id="gps-map"></div>
+    <div class="gps-legend">
+      <span><i style="background:#1a9a56"></i>Lokasi Anda</span>
+      <span><i style="background:#9b1c1c"></i>Titik Absensi</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="btn-row">
+      <div>
+        <button class="btn btn-presensi btn-tan" id="btn-presensi-masuk" disabled>
+          <span class="btn-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg></span>
+          <span class="btn-txt"><b>Presensi Masuk</b><small>Mulai aktivitas hari ini</small></span>
+          <span class="btn-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></span>
+        </button>
+        <div class="presensi-caption hidden"><span>Masuk:</span><span class="mono" id="cap-masuk">--:--</span></div>
+      </div>
+      <div>
+        <button class="btn btn-presensi btn-tan" id="btn-presensi-pulang" disabled>
+          <span class="btn-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></span>
+          <span class="btn-txt"><b>Presensi Pulang</b><small>Akhiri aktivitas hari ini</small></span>
+          <span class="btn-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></span>
+        </button>
+        <div class="presensi-caption hidden"><span>Pulang:</span><span class="mono" id="cap-pulang">--:--</span></div>
+      </div>
+    </div>
+    <button class="btn btn-soft-green hidden" id="btn-goto-patroli">🛡️ Lapor Patroli</button>
+    <button class="btn btn-soft-red hidden" id="btn-goto-laporan-kejadian">🚨 Laporan Kejadian</button>
+    <button class="btn btn-outline hidden" id="btn-goto-kegiatan">🧹 Laporan Kegiatan</button>
+  </div>
+
+  <div class="card card-slipgaji hidden" id="card-slipgaji">
+    <button class="row-btn" id="btn-slipgaji" type="button">
+      <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="13" y2="13"></line><line x1="7" y1="17" x2="11" y2="17"></line></svg></span>
+      <span class="row-txt"><b>Slip Gaji</b><small>Lihat slip gaji Anda bulan ini</small></span>
+      <span class="row-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span>
+    </button>
+  </div>
+
+  <div class="card">
+    <button class="row-btn" id="btn-riwayat" type="button">
+      <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
+      <span class="row-txt"><b>Riwayat Absensi</b><small>Lihat riwayat kehadiran Anda</small></span>
+      <span class="row-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span>
+    </button>
+  </div>
+
+  <p class="muted" style="text-align:center; font-size:11px; margin:5px 0 0;">PT Cakra Adidaya Perkasa</p>
+</section>
+
+
+<div id="modal-presensi" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <h3 id="presensi-modal-title">Presensi Masuk</h3>
+    <div class="cam-wrap" id="presensi-camwrap"><video id="presensi-video" autoplay playsinline muted></video><button class="cam-flip" id="btn-flip-presensi" type="button">🔄</button></div>
+    <canvas id="presensi-canvas" class="hidden"></canvas>
+    <img id="presensi-shot" class="cam-shot hidden">
+    <div class="cam-actions" id="presensi-shoot-wrap">
+      <button class="btn btn-navy" id="btn-shoot-presensi">📸 Ambil Foto & Kirim</button>
+    </div>
+    <div class="cam-actions hidden" id="presensi-retake-wrap">
+      <button class="btn btn-outline" id="btn-retake-presensi">Ulangi</button>
+      <button class="btn btn-navy" id="btn-kirim-presensi">Kirim</button>
+    </div>
+    <button class="btn btn-ghost" id="btn-batal-presensi">Batal</button>
+  </div>
+</div>
+
+<div id="modal-riwayat" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <h3>🕓 Riwayat Absensi — 7 Hari Terakhir</h3>
+    <div id="home-riwayat-pending"></div>
+    <div id="home-riwayat"><div class="empty-state">Memuat...</div></div>
+    <button class="btn btn-outline" id="btn-tutup-riwayat">Tutup</button>
+  </div>
+</div>
+
+<div id="modal-slipgaji" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <h3>💰 Slip Gaji</h3>
+    <div id="home-slipgaji"><div class="empty-state">Memuat...</div></div>
+    <button class="btn btn-navy hidden" id="btn-unduh-slipgaji-pdf">Unduh PDF</button>
+    <button class="btn btn-outline" id="btn-tutup-slipgaji">Tutup</button>
+  </div>
+</div>
+
+
+<section id="screen-patroli" class="screen hidden">
+  <div class="top-back"><button data-back="home">←</button><h2>Patroli</h2></div>
+
+  <div id="patroli-step-pilih">
+    <div class="card">
+      <div class="section-lbl">Pilih Titik Pos</div>
+      <button class="btn btn-navy" id="btn-scan-patroli">🔳 Scan QR Pos</button>
+      <div class="divider-or">atau pilih manual</div>
+      <select id="patroli-pilih-manual"><option value="">Pilih pos...</option></select>
+      <button class="btn btn-outline" id="btn-pilih-manual-patroli">Pilih</button>
+    </div>
+  </div>
+
+  <div id="patroli-step-scan" class="hidden">
+    <div class="card">
+      <div class="cam-wrap">
+        <video id="patroli-video" autoplay playsinline muted></video>
+        <div class="scan-box"></div>
+      </div>
+      <p class="muted" style="font-size:13px; text-align:center; margin-top:8px;">Arahkan kamera ke kode QR di titik pos</p>
+      <button class="btn btn-ghost" id="btn-batal-scan-patroli">Batal Scan</button>
+    </div>
+  </div>
+
+  <div id="patroli-step-lapor" class="hidden">
+    <div class="card">
+      <div class="section-lbl">Titik Pos: <span id="patroli-nama-pos">-</span></div>
+    </div>
+    <div class="card">
+      <div class="section-lbl">Foto Bukti</div>
+      <div class="cam-wrap" id="patroli-camwrap2"><video id="patroli-video2" autoplay playsinline muted></video><button class="cam-flip" id="btn-flip-patroli2" type="button">🔄</button></div>
+      <canvas id="patroli-canvas" class="hidden"></canvas>
+      <img id="patroli-shot" class="cam-shot hidden">
+      <div class="cam-actions"><button class="btn btn-navy" id="btn-shoot-patroli">📸 Ambil Foto</button></div>
+      <button class="btn btn-outline hidden" id="btn-retake-patroli">Ambil Ulang</button>
+    </div>
+    <div class="card">
+      <div class="section-lbl">Lokasi GPS</div>
+      <div class="loc-box"><span class="pulse" id="patroli-loc-dot"></span><span id="patroli-loc-text">Menunggu lokasi...</span></div>
+    </div>
+    <div class="card">
+      <label>Catatan (opsional)</label>
+      <textarea id="patroli-catatan" placeholder="Temuan/kondisi di pos ini..."></textarea>
+      <button class="btn btn-navy" id="btn-kirim-patroli" disabled>Kirim Laporan Patroli</button>
+      <button class="btn btn-ghost" id="btn-batal-patroli">Batal</button>
+    </div>
+  </div>
+</section>
+
+
+<section id="screen-laporan-kejadian" class="screen hidden">
+  <div class="top-back"><button data-back="home">←</button><h2>Laporan Kejadian</h2></div>
+
+  <!-- Step kamera bersama, dipakai tombol "+ Tambah Foto" di form Anggota -->
+  <div id="kejadian-step-foto" class="hidden">
+    <div class="card">
+      <div class="section-lbl">Foto Dokumentasi</div>
+      <div class="cam-wrap" id="kejadian-camwrap"><video id="kejadian-video-foto" autoplay playsinline muted></video><button class="cam-flip" id="btn-flip-kejadian-foto" type="button">🔄</button></div>
+      <canvas id="kejadian-canvas-foto" class="hidden"></canvas>
+      <img id="kejadian-shot-foto" class="cam-shot hidden">
+      <div class="cam-actions" id="kejadian-foto-shoot-wrap">
+        <button class="btn btn-navy" id="btn-shoot-kejadian-foto">📸 Ambil Foto</button>
+        <button class="btn btn-outline" id="btn-galeri-kejadian-foto" type="button">🖼️ Pilih dari Galeri</button>
+        <input type="file" id="kejadian-file-foto" accept="image/*" class="hidden">
+      </div>
+      <div class="cam-actions hidden" id="kejadian-foto-retake-wrap">
+        <label>Keterangan Foto</label>
+        <input type="text" id="kejadian-foto-ket" placeholder="Contoh: Kondisi pos 1">
+        <button class="btn btn-outline" id="btn-retake-kejadian-foto">Ambil Ulang</button>
+        <button class="btn btn-navy" id="btn-simpan-kejadian-foto">Simpan Foto</button>
+      </div>
+      <button class="btn btn-ghost" id="btn-batal-kejadian-foto">Batal</button>
+    </div>
+  </div>
+
+  <!-- ===== TINGKAT ANGGOTA: Bagian A-G ===== -->
+  <div id="kejadian-view-anggota" class="hidden">
+    <div class="card">
+      <div class="section-lbl">Riwayat Laporan Kejadian</div>
+      <select id="kj-anggota-pilih"><option value="">Memuat daftar laporan...</option></select>
+      <button type="button" class="btn btn-outline" id="btn-anggota-cetak">Lihat / Cetak PDF</button>
+    </div>
+    <div class="card"><div class="section-lbl">A. IDENTITAS DAN KLASIFIKASI AWAL</div></div>
+    <div class="card">
+      <label>Lokasi / Site</label><input type="text" id="kj-lokasi" required>
+      <label>Unit / Area</label><input type="text" id="kj-unit">
+      <label>Jenis Laporan</label>
+      <select id="kj-jenisLaporan" onchange="kjCekLainnya(this)">
+        <option value="">-- Pilih --</option>
+        <option>Kehilangan</option><option>Pencurian</option><option>Barang temuan</option>
+        <option>Perkelahian</option><option>Kebakaran</option><option>Medis</option><option value="Lainnya">Lainnya</option>
+      </select>
+      <input type="text" id="kj-jenisLaporan_lainnya" class="hidden" placeholder="Sebutkan jenis lainnya...">
+      <label>Level Kejadian</label>
+      <select id="kj-level"><option value="">-- Pilih --</option><option>Merah</option><option>Oranye</option><option>Kuning</option><option>Hijau</option></select>
+      <div class="grid-2">
+        <div><label>Waktu Terjadi</label><input type="datetime-local" id="kj-waktuTerjadi"></div>
+        <div><label>Waktu Diketahui</label><input type="datetime-local" id="kj-waktuDiketahui"></div>
+      </div>
+      <label>Nama Pelapor (Saksi/Korban)</label><input type="text" id="kj-namaPelapor">
+      <div class="grid-2">
+        <div><label>No. Telepon Pelapor</label><input type="tel" id="kj-telpPelapor"></div>
+        <div><label>Asal Pelapor</label><input type="text" id="kj-asalPelapor" placeholder="Mis: Pegawai"></div>
+      </div>
+      <div class="grid-2">
+        <div><label>Petugas Penerima Laporan</label><input type="text" id="kj-namaPetugas" required></div>
+        <div><label>No. ID Petugas</label><input type="text" id="kj-idPetugas"></div>
+      </div>
+    </div>
+
+    <div class="card"><div class="section-lbl">B. KONDISI SAAT PERTAMA DIKETAHUI</div>
+      <textarea id="kj-kondisiAwal" rows="3" placeholder="Apa yang terlihat/terdengar, posisi barang/orang..." required></textarea>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">C. KRONOLOGI KEJADIAN — URUT WAKTU</div>
+      <div id="kj-kronologi-container"></div>
+      <button type="button" class="btn-sm-outline" onclick="kjTambahKronologi()">+ Tambah Baris Kronologi</button>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">D. TINDAKAN AWAL</div>
+      <label>Tindakan Keselamatan</label>
+      <select id="kj-tindakanKeselamatan" onchange="kjCekLainnya(this)">
+        <option>Tidak diperlukan</option><option>Alarm</option><option>Evakuasi</option><option>Pertolongan pertama</option><option>APAR</option><option value="Lainnya">Lainnya</option>
+      </select>
+      <input type="text" id="kj-tindakanKeselamatan_lainnya" class="hidden" placeholder="Sebutkan tindakan lainnya...">
+      <label>Tindakan Pengamanan</label>
+      <select id="kj-tindakanPengamanan" onchange="kjCekLainnya(this)">
+        <option>Perimeter</option><option>Pembatasan akses</option><option>Pisahkan pihak</option><option>Jaga barang</option><option value="Lainnya">Lainnya</option>
+      </select>
+      <input type="text" id="kj-tindakanPengamanan_lainnya" class="hidden" placeholder="Sebutkan tindakan lainnya...">
+      <label>Pihak Dihubungi (opsional)</label>
+      <div class="grid-2"><input type="text" id="kj-pihakNama" placeholder="Nama/Instansi"><input type="time" id="kj-pihakWaktu"></div>
+      <input type="text" id="kj-pihakRespons" placeholder="Respons (mis: menuju lokasi)">
+      <label>Status Korban/Luka</label><textarea id="kj-korban" rows="2" placeholder="Tulis 'Tidak ada' jika aman..."></textarea>
+      <label>Bahaya Saat Serah-Terima (opsional)</label>
+      <textarea id="kj-bahayaSerahTerima" rows="2" placeholder="Potensi bahaya yang masih ada, atau ketik '-' jika aman..."></textarea>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">E. PIHAK TERLIBAT &amp; BARANG/ASET</div>
+      <label>Pihak Terlibat / Saksi</label>
+      <div id="kj-pihak-container"></div>
+      <button type="button" class="btn-sm-outline" onclick="kjTambahDyn('pihak')">+ Tambah Pihak Terlibat</button>
+      <label style="margin-top:14px;">Barang / Aset Terkait</label>
+      <div id="kj-aset-container"></div>
+      <button type="button" class="btn-sm-outline" onclick="kjTambahDyn('aset')">+ Tambah Barang/Aset</button>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">F. BUKTI / LAMPIRAN AWAL</div>
+      <div id="kj-bukti-container"></div>
+      <button type="button" class="btn-sm-outline" onclick="kjTambahDyn('bukti')">+ Tambah Bukti</button>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">G. PERNYATAAN &amp; SERAH-TERIMA PELAKSANA</div>
+      <label>Dokumentasi Foto</label>
+      <div id="kj-dok-container"></div>
+      <button type="button" class="btn-sm-outline" onclick="kjMulaiTambahFoto()">+ Tambah Foto Dokumentasi</button>
+      <label style="display:flex; align-items:flex-start; gap:10px; font-weight:normal; margin-top:14px;">
+        <input type="checkbox" id="kj-pernyataan" style="width:18px; height:18px; margin-top:2px;">
+        <span style="font-size:13px; color:var(--text);">Saya menyatakan laporan di atas saya tulis berdasarkan apa yang saya ketahui dan lakukan, tanpa menambah dugaan sebagai fakta.</span>
+      </label>
+      <div class="grid-2">
+        <div><label>Pembuat Laporan</label><input type="text" id="kj-namaPelaksanaSerah"></div>
+        <div><label>Waktu Serah Terima</label><input type="datetime-local" id="kj-waktuSerah"></div>
+      </div>
+      <label>Danru Penerima Kendali</label><input type="text" id="kj-namaDanruAwal">
+      <button class="btn btn-soft-red" id="btn-kirim-kejadian-anggota">Kirim Laporan Awal</button>
+    </div>
+  </div>
+
+  <!-- ===== TINGKAT DANRU: Bagian H-I ===== -->
+  <div id="kejadian-view-danru" class="hidden">
+    <div class="card">
+      <div class="section-lbl">Riwayat Laporan Kejadian</div>
+      <select id="kj-danru-pilih"><option value="">Memuat daftar laporan...</option></select>
+      <div class="btn-row">
+        <button type="button" class="btn btn-outline" id="btn-danru-muat">Muat Detail</button>
+        <button type="button" class="btn btn-outline" id="btn-danru-cetak">Cetak PDF</button>
+      </div>
+    </div>
+    <div id="kj-danru-ringkasan" class="card hidden"></div>
+    <div id="kj-danru-form" class="hidden">
+      <div class="card">
+        <div class="section-lbl">H. VERIFIKASI DAN TINDAKAN DANRU</div>
+        <div class="grid-2">
+          <div><label>Waktu Menerima Laporan</label><input type="datetime-local" id="kj-waktuTerimaDanru"></div>
+          <div><label>Waktu Tiba/Ambil Kendali</label><input type="datetime-local" id="kj-waktuTibaDanru"></div>
+        </div>
+        <div class="grid-2">
+          <div><label>Klasifikasi Setelah Verifikasi</label><select id="kj-klasifikasiDanru"><option value="">-- Pilih --</option><option>Merah</option><option>Oranye</option><option>Kuning</option><option>Hijau</option></select></div>
+          <div><label>Perubahan dari Level Awal?</label>
+            <select id="kj-perubahanLevel" onchange="kjCekLainnya(this)"><option>Tidak</option><option value="Lainnya">Ya</option></select>
+            <input type="text" id="kj-perubahanLevel_lainnya" class="hidden" placeholder="Sebutkan alasannya...">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div><label>Status Lokasi</label><select id="kj-statusLokasi"><option>Aman</option><option>Terbatas</option><option>Ditutup</option><option>Diserahkan aparat</option></select></div>
+          <div><label>Personel Tambahan</label><input type="text" id="kj-personelTambahan" placeholder="Isi '-' jika tidak ada"></div>
+        </div>
+        <label>Hasil Verifikasi Danru</label><textarea id="kj-hasilVerifikasi" rows="3"></textarea>
+        <label>Tindakan / Perintah Danru &amp; Hasilnya</label>
+        <div id="kj-tindakanDanru-container"></div>
+        <button type="button" class="btn-sm-outline" onclick="kjTambahTindakanDanru()">+ Tambah Tindakan</button>
+      </div>
+      <div class="card">
+        <div class="section-lbl">I. ESKALASI DAN SERAH-TERIMA DANRU</div>
+        <div class="dyn-box"><div class="dyn-box-title">Laporan ke Komandan Peleton (Danton)</div>
+          <div class="grid-2"><input type="text" id="kj-namaKoordEskalasi" placeholder="Nama Danton"><input type="time" id="kj-waktuKoordEskalasi"></div>
+          <input type="text" id="kj-arahanKoordEskalasi" placeholder="Arahan">
+        </div>
+        <div class="dyn-box"><div class="dyn-box-title">Laporan ke PIC/Manajemen</div>
+          <div class="grid-2"><input type="text" id="kj-namaPicEskalasi" placeholder="Nama/Jabatan"><input type="time" id="kj-waktuPicEskalasi"></div>
+          <input type="text" id="kj-arahanPicEskalasi" placeholder="Arahan">
+        </div>
+        <label>Pihak Eksternal Dihubungi</label>
+        <select id="kj-eksternalEskalasi" onchange="kjCekLainnya(this)"><option>Tidak ada</option><option>Polisi</option><option>Damkar</option><option>Medis</option><option value="Lainnya">Lainnya</option></select>
+        <input type="text" id="kj-eksternalEskalasi_lainnya" class="hidden" placeholder="Sebutkan pihak lainnya...">
+        <label>Nomor Laporan / Petugas</label><input type="text" id="kj-noLaporanEksternal">
+        <label>Status Bukti / CCTV</label>
+        <select id="kj-statusBukti" onchange="kjCekLainnya(this)"><option>Sudah diamankan</option><option>Proses</option><option>Tidak ada</option><option value="Lainnya">Terkendala</option></select>
+        <input type="text" id="kj-statusBukti_lainnya" class="hidden" placeholder="Sebutkan kendalanya...">
+        <label>Waktu Serah ke Danton</label><input type="datetime-local" id="kj-waktuSerahDanru">
+        <button class="btn btn-soft-red" id="btn-kirim-kejadian-danru">Simpan Verifikasi Danru</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TINGKAT KOORDINATOR: Bagian J-K ===== -->
+  <div id="kejadian-view-koordinator" class="hidden">
+    <div class="card">
+      <div class="section-lbl">Riwayat Laporan Kejadian</div>
+      <select id="kj-koord-pilih"><option value="">Memuat daftar laporan...</option></select>
+      <div class="btn-row">
+        <button type="button" class="btn btn-outline" id="btn-koord-muat">Muat Detail</button>
+        <button type="button" class="btn btn-outline" id="btn-koord-cetak">Cetak PDF</button>
+      </div>
+    </div>
+    <div id="kj-koord-ringkasan" class="card hidden"></div>
+    <div id="kj-koord-form" class="hidden">
+      <div class="card">
+        <div class="section-lbl">J. TELAAH DAN KEPUTUSAN KOMANDAN PELETON</div>
+        <div class="grid-2">
+          <div><label>Level Final Sementara</label><select id="kj-levelFinal"><option value="">-- Pilih --</option><option>Merah</option><option>Oranye</option><option>Kuning</option><option>Hijau</option></select></div>
+          <div><label>Investigasi Internal</label>
+            <select id="kj-investigasi" onchange="kjCekLainnya(this)"><option>Tidak diperlukan</option><option value="Lainnya">Diperlukan</option></select>
+            <input type="text" id="kj-investigasi_lainnya" class="hidden" placeholder="Ketua/anggota tim...">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div><label>SO / Rekonsiliasi</label>
+            <select id="kj-rekonsiliasi" onchange="kjCekLainnya(this)"><option>Tidak</option><option value="Lainnya">Ya</option></select>
+            <input type="text" id="kj-rekonsiliasi_lainnya" class="hidden" placeholder="Unit penanggung jawab & batas waktu...">
+          </div>
+          <div><label>Wawancara / Klarifikasi</label>
+            <select id="kj-wawancara" onchange="kjCekLainnya(this)"><option>Tidak</option><option value="Lainnya">Ya</option></select>
+            <input type="text" id="kj-wawancara_lainnya" class="hidden" placeholder="Sebutkan pihak...">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div><label>Pelaporan Eksternal</label>
+            <select id="kj-pelaporanEks" onchange="kjCekLainnya(this)"><option>Tidak</option><option>Polisi</option><option>Damkar</option><option>K3</option><option value="Lainnya">Lainnya</option></select>
+            <input type="text" id="kj-pelaporanEks_lainnya" class="hidden" placeholder="Sebutkan & siapa yang memutuskan...">
+          </div>
+          <div><label>Pengamanan Lanjutan</label>
+            <select id="kj-pengamananLanjut" onchange="kjCekLainnya(this)"><option>Tidak ada</option><option>Tambah personel</option><option>Tutup area</option><option>Simpan bukti</option><option>Pantau CCTV</option><option value="Lainnya">Lainnya</option></select>
+            <input type="text" id="kj-pengamananLanjut_lainnya" class="hidden" placeholder="Sebutkan tindakan...">
+          </div>
+        </div>
+        <label>LHII (Laporan Hasil Investigasi Internal)</label>
+        <select id="kj-lhii" onchange="kjCekLainnya(this)"><option>Tidak</option><option>Awal 1x24 jam</option><option>Final 3x24 jam</option><option value="Lainnya">Tenggat Lain</option></select>
+        <input type="text" id="kj-lhii_lainnya" class="hidden" placeholder="Sebutkan tenggat waktu...">
+        <label>Catatan Danton</label><textarea id="kj-catatanKoord" rows="3"></textarea>
+      </div>
+      <div class="card">
+        <div class="section-lbl">K. DISTRIBUSI DAN STATUS</div>
+        <label>Distribusi Kepada</label><input type="text" id="kj-distribusiLaporan" placeholder="Mis: Pimpinan, PIC, HR, Legal...">
+        <label>Status Laporan</label>
+        <select id="kj-statusAkhirLaporan"><option>Terkendali/monitor</option><option>Investigasi berjalan</option><option>Diserahkan pihak berwenang</option><option>Siap ditutup</option></select>
+        <div class="grid-2">
+          <div><label>PIC/Pejabat Pengguna Jasa</label><input type="text" id="kj-namaTtdPic"></div>
+          <div><label>Penerima Lain (bila ada)</label><input type="text" id="kj-namaTtdLain"></div>
+        </div>
+        <button class="btn btn-soft-red" id="btn-kirim-kejadian-koordinator">Simpan Telaah Danton</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<section id="screen-kegiatan" class="screen hidden">
+  <div class="top-back"><button data-back="home">←</button><h2>Laporan Kegiatan</h2></div>
+
+  <div id="kegiatan-step-pilih">
+    <div class="card">
+      <div class="section-lbl">Pilih Tugas</div>
+      <button class="btn btn-navy" id="btn-scan-kegiatan">🔳 Scan QR Tugas</button>
+      <div class="divider-or">atau pilih manual</div>
+      <select id="kegiatan-pilih-manual"><option value="">Pilih tugas...</option></select>
+      <button class="btn btn-outline" id="btn-pilih-manual-kegiatan">Pilih</button>
+    </div>
+  </div>
+
+  <div id="kegiatan-step-scan" class="hidden">
+    <div class="card">
+      <div class="cam-wrap">
+        <video id="kegiatan-video" autoplay playsinline muted></video>
+        <div class="scan-box"></div>
+      </div>
+      <p class="muted" style="font-size:13px; text-align:center; margin-top:8px;">Arahkan kamera ke kode QR di lokasi tugas</p>
+      <button class="btn btn-ghost" id="btn-batal-scan-kegiatan">Batal Scan</button>
+    </div>
+  </div>
+
+  <div id="kegiatan-step-lapor" class="hidden">
+    <div class="card">
+      <div class="section-lbl">Tugas: <span id="kegiatan-nama-tugas">-</span></div>
+      <div class="muted" style="font-size:13px;">Area: <span id="kegiatan-nama-area">-</span></div>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">Foto Sebelum</div>
+      <div id="keg-sebelum-cam">
+        <div class="cam-wrap"><video id="keg-video-sebelum" autoplay playsinline muted></video><button class="cam-flip" id="btn-flip-kegsebelum" type="button">🔄</button></div>
+        <div class="cam-actions"><button class="btn btn-navy" id="btn-shoot-sebelum">📸 Ambil Foto Sebelum</button></div>
+      </div>
+      <canvas id="keg-canvas-sebelum" class="hidden"></canvas>
+      <img id="keg-shot-sebelum" class="cam-shot hidden">
+      <button class="btn btn-ghost hidden" id="btn-retake-sebelum">Ambil ulang</button>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">Foto Sesudah</div>
+      <div id="keg-sesudah-wrap" class="hidden">
+        <div id="keg-sesudah-cam">
+          <div class="cam-wrap"><video id="keg-video-sesudah" autoplay playsinline muted></video><button class="cam-flip" id="btn-flip-kegsesudah" type="button">🔄</button></div>
+          <div class="cam-actions"><button class="btn btn-navy" id="btn-shoot-sesudah">📸 Ambil Foto Sesudah</button></div>
+        </div>
+        <canvas id="keg-canvas-sesudah" class="hidden"></canvas>
+        <img id="keg-shot-sesudah" class="cam-shot hidden">
+        <button class="btn btn-ghost hidden" id="btn-retake-sesudah">Ambil ulang</button>
+      </div>
+      <p class="muted" id="keg-sesudah-hint" style="font-size:12px;">Ambil foto "sebelum" dulu.</p>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">Lokasi GPS</div>
+      <div class="loc-box"><span class="pulse" id="keg-loc-dot"></span><span id="keg-loc-text">Menunggu lokasi...</span></div>
+    </div>
+
+    <div class="card">
+      <label>Catatan (opsional)</label>
+      <textarea id="keg-catatan" placeholder="Catatan tambahan..."></textarea>
+      <button class="btn btn-navy" id="btn-kirim-kegiatan" disabled>Kirim Laporan</button>
+      <button class="btn btn-ghost" id="btn-batal-kegiatan">Batal</button>
+    </div>
+  </div>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+
+<div id="banner-instal" class="banner-instal hidden">
+  <div class="teks"><b>Pasang Absensi CAP</b>Supaya lebih cepat dibuka, pasang aplikasi ini ke layar utama HP Anda.</div>
+  <button class="btn-pasang" id="btn-pasang-app">Pasang</button>
+  <button class="btn-tutup" id="btn-tutup-banner-instal" aria-label="Tutup">&times;</button>
+</div>
+
+<nav class="navbar hidden" id="navbar">
+  <button data-nav="home"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></span><span class="lb">Dashboard</span></button>
+  <button data-nav="sync"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg></span><span class="lb">Sync Data</span></button>
+  <button data-nav="riwayat"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span class="lb">Riwayat</span></button>
+  <button data-nav="logout"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg></span><span class="lb">Logout</span></button>
+</nav>
+
+<script>
+const API_URL = 'https://wewjoflrfnhsesboacxn.supabase.co/functions/v1/absensi-api';
+const LOGO_URL = 'icon-192.png'; 
+const KODE_KLIEN = new URLSearchParams(location.search).get('klien') || '';
+// Menu "Slip Gaji" (lihat #card-slipgaji & btn-slipgaji) baru dipakai klien
+// SOEROJO HOSPITAL - sama dengan admin.html.
+const KLIEN_SLIP_GAJI_DIIZINKAN = ['soerojo-hospital'];
+// Menu "Laporan Kejadian" (lihat #btn-goto-laporan-kejadian & #screen-laporan-kejadian)
+// baru dipakai klien SOEROJO HOSPITAL juga - sama dengan admin.html.
+const KLIEN_LAPORAN_KEJADIAN_DIIZINKAN = ['soerojo-hospital'];
+let logoKlienAktif = '';
+if (KLIEN_SLIP_GAJI_DIIZINKAN.includes(KODE_KLIEN)) {
+  document.getElementById('card-slipgaji').classList.remove('hidden');
+}
+
+// Ikon PWA yang sudah diinstal membuka halaman tanpa query string (?klien=...).
+// Simpan link lengkap saat dibuka normal, lalu redirect otomatis ke link itu
+// kalau suatu saat dibuka tanpa parameter (mis. dari ikon di layar utama).
+// PENTING: localStorage TERNYATA tidak selalu ikut terbawa dari tab Safari biasa
+// ke web app Home Screen yang baru pertama kali dibuka di iOS (sudah terbukti
+// gagal di pengujian nyata). Cookie lebih bisa diandalkan karena memakai cookie
+// jar yang sama di seluruh WebKit (Safari & web app Home Screen), jadi dipakai
+// sebagai penyimpanan utama; localStorage tetap disertakan sebagai cadangan.
+function raySetCookie(nama, nilai, hari) {
+  try {
+    const d = new Date();
+    d.setTime(d.getTime() + hari * 24 * 60 * 60 * 1000);
+    document.cookie = nama + '=' + encodeURIComponent(nilai) + '; expires=' + d.toUTCString() + '; path=/';
+  } catch (e) {}
+}
+function rayGetCookie(nama) {
+  try {
+    const m = document.cookie.match('(?:^|; )' + nama + '=([^;]*)');
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch (e) { return ''; }
+}
+// Cadangan tambahan selain cookie/localStorage: titipkan ?klien=... ke Cache
+// Storage milik Service Worker (lewat postMessage). Beberapa iPhone TERBUKTI
+// tidak membawa cookie/localStorage dari Safari ke web app Home Screen yang
+// baru pertama kali dibuka, sedangkan Cache Storage punya SW konsisten
+// dipakai bersama karena SW-nya sendiri sama. Kalau ini juga gagal (SW belum
+// aktif), redirect di sw.js saat halaman dibuka tanpa query string tetap
+// akan coba pakai apa pun yang berhasil tersimpan.
+function kirimQsKeServiceWorker(halaman, qs) {
+  if (!qs || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready.then((reg) => {
+    if (reg.active) reg.active.postMessage({ type: 'SIMPAN_QS', halaman, qs });
+  }).catch(() => {});
+}
+let SEDANG_REDIRECT_PWA = false;
+if (KODE_KLIEN) {
+  raySetCookie('ray_pwa_start_qs', location.search, 730);
+  try { localStorage.setItem('ray_pwa_start_qs', location.search); } catch(e){}
+  kirimQsKeServiceWorker('index.html', location.search);
+} else {
+  try {
+    const savedQs = rayGetCookie('ray_pwa_start_qs') || localStorage.getItem('ray_pwa_start_qs') || '';
+    if (savedQs) {
+      // location.replace() tidak langsung menghentikan script di bawah ini,
+      // jadi tandai sedang redirect supaya muatInfoSistem() tidak sempat
+      // menampilkan layar "link tidak valid" sesaat sebelum halaman berpindah.
+      SEDANG_REDIRECT_PWA = true;
+      location.replace('index.html' + savedQs);
+    }
+  } catch(e){}
+}
+
+let sesi = { nama: '', pin: '', bagianKerja: '', jabatan: '' };
+let klienValid = false;
+let cameraStreams = {};
+let daftarLokasiKerja = [];
+let daftarTitikPatroli = [];
+let daftarTugasKebersihan = [];
+let posisiTerkini = null;        
+let watchId = null;
+let leafletMap = null, leafletMarker = null;
+// Satu entri { lokasi, marker, circle } per titik lokasi absensi milik klien —
+// semua digambar sekaligus di peta, bukan cuma yang terdekat dari GPS karyawan.
+let leafletLokasiLayers = [];
+
+// Deteksi anomali GPS (indikasi Fake GPS/mock location) sebatas yang bisa
+// dibaca dari Geolocation API browser — lihat catatan di evaluasiAnomaliGps().
+let posisiSebelumnya = null;
+let gpsAnomaliAktif = false;
+let gpsAnomaliPesan = '';
+const BATAS_KECEPATAN_GPS_MPS = 60; // ~216 km/jam, longgar supaya tak salah tangkap jitter GPS normal
+const BATAS_GPS_BASI_MS = 15000;    // posisi lebih tua dari ini dari waktu sekarang dianggap janggal
+
+// Radius titik absensi 100m, jadi fix GPS yang akurasinya lebih kasar dari ini
+// tidak bisa dipercaya untuk menentukan dalam/luar radius - browser kadang
+// jatuh ke lokasi perkiraan dari WiFi/sinyal seluler (bisa meleset ratusan
+// meter) sebelum GPS asli dapat fix, beda dengan app Maps native yang biasa
+// langsung pakai GPS OS. Tanpa pengecekan ini, karyawan bisa ditolak dengan
+// pesan jarak yang terkesan pasti padahal GPS-nya sendiri belum presisi.
+const AKURASI_MAKS_M = 150;
+function akurasiBelumLayak() {
+  return !!posisiTerkini && posisiTerkini.akurasi > AKURASI_MAKS_M;
+}
+
+// Masa "pemanasan" GPS: fix PERTAMA yang datang dari watchPosition sering
+// berasal dari lokasi perkiraan WiFi/menara seluler (akurasi dilaporkan kecil
+// tapi posisinya bisa meleset ribuan meter) sebelum GPS asli dapat kunci
+// satelit — beda dengan app Maps native yang biasa sudah punya fix GPS lama
+// ter-cache. Selama masa ini, status "Dalam/Luar Radius" ditahan dulu (tombol
+// presensi tetap nonaktif) supaya karyawan tidak melihat "Di luar Radius"
+// yang menakutkan padahal cuma GPS belum mantap. Selesai lebih cepat kalau
+// fix yang datang sudah cukup akurat (lihat GPS_WARMUP_AKURASI_CEPAT_M).
+const GPS_WARMUP_MS = 6000;
+const GPS_WARMUP_AKURASI_CEPAT_M = 30;
+let gpsWarmupSelesai = false;
+let gpsWarmupTimer = null;
+
+async function api(action, payload) {
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indld2pvZmxyZm5oc2VzYm9hY3huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3OTg2NzMsImV4cCI6MjExMDM3NDY3M30.0lCidAyATJFxAaDZDGrurxBEOqE4eTG6AiwvtX1uuTM',
+        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indld2pvZmxyZm5oc2VzYm9hY3huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3OTg2NzMsImV4cCI6MjExMDM3NDY3M30.0lCidAyATJFxAaDZDGrurxBEOqE4eTG6AiwvtX1uuTM'
+      },
+      body: JSON.stringify(Object.assign({ action, kodeKlien: KODE_KLIEN }, payload || {}))
+    });
+    return await res.json();
+  } catch (e) {
+    return { sukses: false, pesan: 'Gagal terhubung ke server. Cek koneksi internet Anda.', offline: true };
+  }
+}
+
+// ANTRIAN OFFLINE (absen & patroli) — saat fetch di atas gagal karena sinyal/
+// koneksi (bukan ditolak server), payload disimpan di IndexedDB device ini
+// lalu dicoba kirim ulang otomatis begitu online lagi/app dibuka lagi, dan
+// bisa juga dipicu manual lewat tombol "Upload Ulang" di modal Riwayat
+// Absensi. IndexedDB dipakai (bukan localStorage) karena payload menyertakan
+// foto base64 yang bisa beberapa MB, di luar batas aman localStorage.
+const ANTRIAN_DB_NAME = 'ray_antrian_offline', ANTRIAN_STORE = 'antrian';
+function bukaDbAntrian() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(ANTRIAN_DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(ANTRIAN_STORE, { keyPath: 'id', autoIncrement: true });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function tambahAntrian(entry) {
+  const db = await bukaDbAntrian();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ANTRIAN_STORE, 'readwrite');
+    tx.objectStore(ANTRIAN_STORE).add(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function ambilSemuaAntrian() {
+  const db = await bukaDbAntrian();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ANTRIAN_STORE, 'readonly');
+    const req = tx.objectStore(ANTRIAN_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function hapusAntrian(id) {
+  const db = await bukaDbAntrian();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ANTRIAN_STORE, 'readwrite');
+    tx.objectStore(ANTRIAN_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Overlay status shift secara optimistis selama masih ada antrian simpanAbsen
+// yang belum terkirim, supaya tombol Masuk/Pulang tidak membuka celah dobel
+// kirim sebelum antrian tadi benar-benar tersinkron ke server (lihat
+// cekTombolPresensi/muatHome yang memakai statusEfektif() ini).
+let antrianAbsenTerakhirJenis = null;
+function statusEfektif() {
+  const st = Object.assign({}, sesi.status || {});
+  if (antrianAbsenTerakhirJenis === 'CLOCK IN') st.shiftAktif = true;
+  else if (antrianAbsenTerakhirJenis === 'CLOCK OUT') st.shiftAktif = false;
+  return st;
+}
+async function segarkanOverlayAntrianAbsen() {
+  const semua = await ambilSemuaAntrian();
+  const absenSaja = semua.filter(e => e.action === 'simpanAbsen');
+  antrianAbsenTerakhirJenis = absenSaja.length ? absenSaja[absenSaja.length - 1].payload.jenisAbsen : null;
+}
+
+async function prosesAntrianOffline() {
+  const semua = await ambilSemuaAntrian();
+  if (!semua.length) return;
+  if (!sesi.nama) return; // belum login, antrian dicoba lagi setelah login/online berikutnya
+  for (const entry of semua) {
+    const res = await api(entry.action, entry.payload);
+    if (res.offline) break; // masih belum ada koneksi, sisanya dicoba lagi nanti
+    await hapusAntrian(entry.id);
+    if (!res.sukses) kirimLogKeSistem('ERROR_UPLOAD_ULANG', entry.labelTampilan + ': ' + res.pesan);
+  }
+  await segarkanOverlayAntrianAbsen();
+  await refreshStatus();
+  muatHome();
+}
+window.addEventListener('online', () => { prosesAntrianOffline().catch(() => {}); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) prosesAntrianOffline().catch(() => {}); });
+
+async function renderAntrianPending() {
+  const box = document.getElementById('home-riwayat-pending');
+  if (!box) return;
+  const semua = await ambilSemuaAntrian();
+  if (!semua.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="antrian-box">' +
+    '<div class="antrian-judul"><b>⏳ Belum Terkirim (' + semua.length + ')</b>' +
+    '<button class="btn-upload-ulang" id="btn-upload-ulang-antrian">⟳ Upload Ulang</button></div>' +
+    semua.map(e => '<div class="antrian-row"><span>' + e.labelTampilan + '</span><span class="status">' + e.waktuTampilan + '</span></div>').join('') +
+    '</div>';
+  document.getElementById('btn-upload-ulang-antrian').addEventListener('click', async (ev) => {
+    const btn = ev.target;
+    setBusy(btn, true, 'Mengupload...', '⟳ Upload Ulang');
+    await prosesAntrianOffline();
+    await muatRiwayatInline();
+    showToast('Sinkronisasi antrian selesai.', true);
+  });
+}
+
+function showToast(pesan, ok) {
+  const t = document.getElementById('toast');
+  t.textContent = pesan;
+  t.className = 'toast ' + (ok ? 'ok' : 'err');
+  clearTimeout(showToast._tm);
+  showToast._tm = setTimeout(() => t.classList.add('hidden'), 3800);
+}
+function setBusy(btn, busy, labelBusy, labelNormal) {
+  btn.disabled = busy;
+  btn.textContent = busy ? (labelBusy || 'Memproses...') : labelNormal;
+}
+if (LOGO_URL) {
+  document.querySelectorAll('.logo').forEach(el => { el.innerHTML = '<img src="' + LOGO_URL + '" alt="logo">'; });
+}
+
+// LOG SYSTEM CALL (JANGAN DIHAPUS, akan mengirim info error ke server bila backend sudah dikonfigurasi)
+// namaOverride dipakai untuk error yang terjadi SEBELUM sesi.nama terisi (mis. saat
+// percobaan login gagal), supaya nama yang sudah dipilih di layar login tetap tercatat
+// di log, bukan malah tertulis "Anonim".
+function kirimLogKeSistem(tipe, deskripsi, namaOverride) {
+  api('simpanLogSystem', { tipe, deskripsi, waktu: new Date().toISOString(), user: namaOverride || sesi.nama || 'Anonim' }).catch(()=>{});
+}
+
+function tampilkanLinkTidakValid(pesan) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  const nav = document.getElementById('navbar');
+  if (nav) nav.classList.add('hidden');
+  document.getElementById('klien-invalid-pesan').textContent = pesan || 'Link absensi ini tidak valid atau sudah tidak aktif. Hubungi admin Anda.';
+  document.getElementById('screen-klien-invalid').classList.remove('hidden');
+}
+async function muatInfoSistem() {
+  if (SEDANG_REDIRECT_PWA) return; // sedang redirect ke link lengkap, biarkan halaman berpindah dulu
+  if (!KODE_KLIEN) {
+    tampilkanLinkTidakValid('Link absensi tidak lengkap. Pastikan Anda membuka link yang diberikan admin (harus mengandung ?klien=... di akhir URL).');
+    return;
+  }
+  const res = await api('infoSistem', {});
+  if (!res.sukses) {
+    tampilkanLinkTidakValid(res.pesan);
+    return;
+  }
+  klienValid = true;
+  const nama = res.namaKlien || 'Sistem Absensi Karyawan';
+  document.title = 'Absensi — ' + nama;
+  const elLogin = document.getElementById('ttl-login');
+  const elHome = document.getElementById('ttl-home');
+  if (elLogin) elLogin.textContent = nama;
+  if (elHome) elHome.textContent = nama;
+  if (res.logoUrl) {
+    logoKlienAktif = res.logoUrl;
+    document.querySelectorAll('.logo').forEach(el => { el.innerHTML = '<img src="' + res.logoUrl + '" alt="logo">'; });
+  }
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+  document.getElementById('screen-' + id).classList.remove('hidden');
+  const nav = document.getElementById('navbar');
+  nav.classList.toggle('hidden', !(id === 'home' && sesi.nama));
+  document.querySelectorAll('.navbar button').forEach(b => b.classList.remove('active'));
+  if (id === 'home') document.querySelector('.navbar button[data-nav="home"]').classList.add('active');
+  stopAllCameras();
+  window.scrollTo(0, 0);
+
+  if (id === 'patroli') resetPatroliScreen();
+  if (id === 'kegiatan') resetKegiatanScreen();
+  if (id === 'laporan-kejadian') resetLaporanKejadianScreen();
+  if (id === 'home') muatHome();
+}
+document.querySelectorAll('[data-back]').forEach(el => el.addEventListener('click', () => showScreen(el.dataset.back)));
+document.getElementById('btn-goto-patroli').addEventListener('click', () => showScreen('patroli'));
+document.getElementById('btn-goto-laporan-kejadian').addEventListener('click', () => showScreen('laporan-kejadian'));
+document.getElementById('btn-goto-kegiatan').addEventListener('click', () => showScreen('kegiatan'));
+document.getElementById('link-daftar').addEventListener('click', (e) => { e.preventDefault(); showScreen('daftar'); });
+document.getElementById('back-daftar').addEventListener('click', () => showScreen('login'));
+
+document.getElementById('navbar').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-nav]');
+  if (!btn) return;
+  if (btn.dataset.nav === 'home') showScreen('home');
+  if (btn.dataset.nav === 'logout') doLogout();
+  if (btn.dataset.nav === 'sync') syncData();
+  if (btn.dataset.nav === 'riwayat') {
+    document.getElementById('modal-riwayat').classList.remove('hidden');
+    muatRiwayatInline();
+  }
+});
+async function syncData() {
+  showToast('Menyinkronkan data...', true);
+  await muatDataMasterUntukSesi();
+  await refreshStatus();
+  muatHome();
+  showToast('Data berhasil disinkronkan.', true);
+}
+function doLogout() {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  sesi = { nama: '', pin: '', bagianKerja: '', jabatan: '' };
+  
+  // Hapus sesi lokal agar saat reload minta PIN ulang, tapi nama tetap terkunci
+  localStorage.removeItem('ray_karyawan_session_' + KODE_KLIEN); 
+  
+  showScreen('login');
+}
+
+let cameraFacing = {}; 
+async function startCamera(videoEl, key, defaultFacing) {
+  key = key || videoEl.id;
+  const facing = cameraFacing[key] || defaultFacing || 'environment';
+  cameraFacing[key] = facing;
+  stopCameraByKey(key);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 960, max: 1280 }, height: { ideal: 1280, max: 1280 } },
+      audio: false
+    });
+    videoEl.srcObject = stream;
+    cameraStreams[key] = stream;
+    return stream;
+  } catch (e) {
+    showToast('Tidak bisa mengakses kamera. Izinkan akses kamera di browser.', false);
+    kirimLogKeSistem('ERROR_KAMERA', e.message);
+    return null;
+  }
+}
+async function toggleCamera(videoEl, key) {
+  key = key || videoEl.id;
+  cameraFacing[key] = (cameraFacing[key] === 'user') ? 'environment' : 'user';
+  await startCamera(videoEl, key, cameraFacing[key]);
+}
+function stopCameraByKey(key) {
+  const s = cameraStreams[key];
+  if (!s) return;
+  if (typeof s.getTracks === 'function') {
+    s.getTracks().forEach(t => t.stop());
+  } else if (typeof s.stop === 'function') {
+    s.stop();
+  }
+  delete cameraStreams[key];
+}
+function stopAllCameras() { Object.keys(cameraStreams).forEach(stopCameraByKey); }
+function captureFrame(videoEl, canvasEl) {
+  canvasEl.width = videoEl.videoWidth;
+  canvasEl.height = videoEl.videoHeight;
+  canvasEl.getContext('2d').drawImage(videoEl, 0, 0);
+  return canvasEl.toDataURL('image/jpeg', 0.82);
+}
+function base64Of(dataUrl) { return dataUrl.split(',')[1]; }
+
+function mulaiScanQR(videoEl, key, onFound, onGagalLib) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let aktif = true;
+  let percobaanTanpaLib = 0;
+  cameraStreams[key + '_scanflag'] = { stop: () => { aktif = false; } };
+  function tick() {
+    if (!aktif) return;
+    try {
+      if (videoEl.readyState >= videoEl.HAVE_CURRENT_DATA && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+        if (!window.jsQR) {
+          percobaanTanpaLib++;
+          if (percobaanTanpaLib > 300) { // ~5 detik pada 60fps
+            aktif = false;
+            if (onGagalLib) onGagalLib();
+            return;
+          }
+        } else {
+          canvas.width = videoEl.videoWidth; canvas.height = videoEl.videoHeight;
+          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(img.data, img.width, img.height);
+          if (code && code.data) { aktif = false; onFound(code.data.trim()); return; }
+        }
+      }
+    } catch (e) {
+      // Jangan biarkan error satu frame mematikan loop scan; lanjut ke frame berikutnya.
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function jarakMeter(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+// Deteksi anomali GPS sebatas sinyal yang tersedia lewat Geolocation API web:
+// 1) lompatan jarak/waktu yang melebihi kecepatan wajar (indikasi lokasi "melompat"
+//    karena diganti paksa oleh app Fake GPS), dan
+// 2) timestamp posisi yang jauh lebih tua dari waktu sekarang (indikasi posisi
+//    ditahan/di-replay oleh mock location provider).
+// CATATAN: ini heuristik sisi klien saja, bukan pengganti validasi di server —
+// kode ini publik dan endpoint API-nya bisa dipanggil langsung di luar halaman ini.
+function evaluasiAnomaliGps(lat, lng, waktuPosisi) {
+  const sekarang = Date.now();
+  const anomali = [];
+
+  if (waktuPosisi && (sekarang - waktuPosisi) > BATAS_GPS_BASI_MS) {
+    anomali.push('Posisi GPS basi (timestamp jauh dari waktu sekarang).');
+  }
+
+  if (posisiSebelumnya) {
+    const jarak = jarakMeter(posisiSebelumnya.lat, posisiSebelumnya.lng, lat, lng);
+    const dt = ((waktuPosisi || sekarang) - posisiSebelumnya.waktu) / 1000;
+    if (dt > 0.5) {
+      const kecepatan = jarak / dt;
+      if (kecepatan > BATAS_KECEPATAN_GPS_MPS) anomali.push('Lokasi melompat tidak wajar (' + Math.round(kecepatan * 3.6) + ' km/jam).');
+    }
+  }
+
+  posisiSebelumnya = { lat, lng, waktu: waktuPosisi || sekarang };
+  return anomali;
+}
+function cariLokasiTerdekat(lat, lng) {
+  if (!daftarLokasiKerja.length) return null;
+  let terdekat = null, jarakMin = Infinity;
+  daftarLokasiKerja.forEach(l => {
+    const j = jarakMeter(lat, lng, l.lat, l.lng);
+    if (j < jarakMin) { jarakMin = j; terdekat = l; }
+  });
+  return { lokasi: terdekat, jarak: jarakMin };
+}
+function initMapFallback() {
+  if (leafletMap || !window.L || !daftarLokasiKerja.length) return;
+  const lok = daftarLokasiKerja[0];
+  leafletMap = L.map('gps-map', {
+    zoomControl: true, attributionControl: false, dragging: true,
+    scrollWheelZoom: true, doubleClickZoom: true, boxZoom: true, touchZoom: true, keyboard: true
+  }).setView([lok.lat, lok.lng], 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(leafletMap);
+  gambarSemuaLokasiKerja();
+  setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 200);
+}
+// Gambar seluruh titik lokasi absensi klien sekaligus (dipanggil sekali saat
+// peta dibuat) — supaya klien dengan beberapa lokasi absensi (misal beberapa
+// pos/gedung) terlihat semua, tidak cuma titik terdekat dari GPS karyawan.
+function gambarSemuaLokasiKerja() {
+  if (!leafletMap || leafletLokasiLayers.length) return;
+  daftarLokasiKerja.forEach(lok => {
+    const marker = L.circleMarker([lok.lat, lok.lng], { radius: 8, color: '#9b1c1c', weight: 2, fillColor: '#9b1c1c', fillOpacity: .9 })
+      .addTo(leafletMap).bindPopup('Titik Absensi: ' + lok.nama);
+    const circle = L.circle([lok.lat, lok.lng], { radius: lok.radius, color: '#9b1c1c', weight: 1, dashArray: '4,4', fillColor: '#9b1c1c', fillOpacity: .08 })
+      .addTo(leafletMap);
+    leafletLokasiLayers.push({ lokasi: lok, marker, circle });
+  });
+}
+// Tandai titik lokasi terdekat dengan warna beda, sisanya tetap biru navy —
+// supaya tetap jelas mana target absen karyawan saat ini walau semua titik tampil.
+function tandaiLokasiTerdekat(lokasiTerdekat) {
+  leafletLokasiLayers.forEach(({ lokasi, marker, circle }) => {
+    const aktif = lokasi === lokasiTerdekat;
+    const warna = aktif ? '#1a9a56' : '#9b1c1c';
+    marker.setStyle({ color: warna, fillColor: warna });
+    circle.setStyle({ color: warna, fillColor: warna });
+  });
+}
+function tampilkanGpsDiblokir(pesan) {
+  document.getElementById('gps-status').textContent = 'Akses lokasi diblokir';
+  document.getElementById('gps-denied-banner').classList.remove('hidden');
+  kirimLogKeSistem('ERROR_GPS', pesan);
+}
+// err.message bawaan browser berbahasa Inggris & teknis (mis. "Timeout expired"),
+// membingungkan buat karyawan lapangan. POSITION_UNAVAILABLE (GPS/Lokasi HP
+// dimatikan di level sistem) dibedakan dari TIMEOUT (sinyal lemah/lokasi
+// belum ketemu tapi watchPosition tetap akan terus mencoba di belakang layar).
+function pesanErrorGps(err) {
+  if (err.code === err.POSITION_UNAVAILABLE) {
+    return 'Sinyal GPS tidak ditemukan. Pastikan Lokasi/GPS aktif di Setelan HP Anda.';
+  }
+  return 'Sinyal GPS lemah/belum ketemu. Coba pindah ke tempat terbuka atau tunggu sebentar.';
+}
+function mulaiPantauLokasi() {
+  initMapFallback();
+  if (!navigator.geolocation) return;
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+
+  gpsWarmupSelesai = false;
+  clearTimeout(gpsWarmupTimer);
+  gpsWarmupTimer = setTimeout(() => {
+    gpsWarmupSelesai = true;
+    // Paksa render ulang pakai fix terakhir yang sudah didapat, supaya status
+    // langsung terupdate begitu masa pemanasan selesai (tidak perlu menunggu
+    // fix watchPosition berikutnya yang jadwalnya tidak pasti).
+    if (posisiTerkini) updatePosisi(posisiTerkini.lat, posisiTerkini.lng, posisiTerkini.akurasi, Date.now());
+  }, GPS_WARMUP_MS);
+
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then(status => {
+      if (status.state === 'denied') tampilkanGpsDiblokir('Izin lokasi berstatus denied (permissions API).');
+    }).catch(() => {});
+  }
+
+  watchId = navigator.geolocation.watchPosition(
+    pos => { updatePosisi(pos.coords.latitude, pos.coords.longitude, Math.round(pos.coords.accuracy), pos.timestamp); },
+    err => {
+      if (err.code === err.PERMISSION_DENIED) {
+        tampilkanGpsDiblokir(err.message);
+      } else {
+        kirimLogKeSistem('ERROR_GPS', err.message + ' (code ' + err.code + ')');
+        // Masih dalam masa pemanasan -> watchPosition tetap akan terus
+        // mencoba di belakang layar, jangan tampilkan pesan menakutkan dulu.
+        if (!gpsWarmupSelesai) {
+          document.getElementById('gps-status').textContent = '📡 Menstabilkan sinyal GPS, mohon tunggu sebentar...';
+        } else {
+          document.getElementById('gps-dot').style.background = 'var(--red)';
+          document.getElementById('gps-status').textContent = pesanErrorGps(err);
+        }
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+  );
+}
+document.getElementById('btn-retry-gps').addEventListener('click', () => {
+  document.getElementById('gps-denied-banner').classList.add('hidden');
+  document.getElementById('gps-status').textContent = 'Mencari lokasi...';
+  mulaiPantauLokasi();
+});
+function updatePosisi(lat, lng, akurasi, waktuPosisi) {
+  posisiTerkini = { lat, lng, akurasi };
+
+  const anomali = evaluasiAnomaliGps(lat, lng, waktuPosisi);
+  if (anomali.length && !gpsAnomaliAktif) kirimLogKeSistem('SUSPECT_GPS', anomali.join(' | '));
+  gpsAnomaliAktif = anomali.length > 0;
+  gpsAnomaliPesan = anomali.join(' | ');
+
+  // Fix yang sudah cukup akurat sejak awal -> tidak perlu menunggu penuh,
+  // langsung selesaikan masa pemanasan supaya karyawan tidak nunggu tanpa alasan.
+  if (!gpsWarmupSelesai && akurasi <= GPS_WARMUP_AKURASI_CEPAT_M) {
+    gpsWarmupSelesai = true;
+    clearTimeout(gpsWarmupTimer);
+  }
+
+  document.getElementById('gps-denied-banner').classList.add('hidden');
+  document.getElementById('gps-akurasi').textContent = '± ' + akurasi + ' m';
+  document.getElementById('link-gmaps').href = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+
+  const terdekat = cariLokasiTerdekat(lat, lng);
+  const banner = document.getElementById('gps-banner');
+  if (!gpsWarmupSelesai && !gpsAnomaliAktif) {
+    document.getElementById('gps-dot').style.background = 'var(--tan-text)';
+    document.getElementById('gps-jarak').textContent = terdekat ? Math.round(terdekat.jarak) + ' m' : '-';
+    document.getElementById('gps-lokasi').textContent = terdekat ? terdekat.lokasi.nama : '-';
+    banner.classList.toggle('ok', false);
+    document.getElementById('gps-status').textContent = '📡 Menstabilkan sinyal GPS, mohon tunggu sebentar...';
+  } else if (gpsAnomaliAktif) {
+    document.getElementById('gps-dot').style.background = 'var(--red)';
+    document.getElementById('gps-jarak').textContent = terdekat ? Math.round(terdekat.jarak) + ' m' : '-';
+    document.getElementById('gps-lokasi').textContent = terdekat ? terdekat.lokasi.nama : '-';
+    banner.classList.toggle('ok', false);
+    document.getElementById('gps-status').textContent = 'Lokasi GPS tidak wajar, coba lagi';
+  } else if (akurasiBelumLayak()) {
+    document.getElementById('gps-dot').style.background = 'var(--red)';
+    document.getElementById('gps-jarak').textContent = terdekat ? Math.round(terdekat.jarak) + ' m' : '-';
+    document.getElementById('gps-lokasi').textContent = terdekat ? terdekat.lokasi.nama : '-';
+    banner.classList.toggle('ok', false);
+    document.getElementById('gps-status').textContent = 'Akurasi GPS masih kasar (±' + akurasi + ' m), tunggu sebentar atau pindah ke tempat terbuka';
+  } else if (terdekat) {
+    const dalamRadius = terdekat.jarak <= terdekat.lokasi.radius;
+    document.getElementById('gps-dot').style.background = dalamRadius ? 'var(--green)' : 'var(--red)';
+    document.getElementById('gps-jarak').textContent = Math.round(terdekat.jarak) + ' m';
+    document.getElementById('gps-lokasi').textContent = terdekat.lokasi.nama;
+    banner.classList.toggle('ok', dalamRadius);
+    document.getElementById('gps-status').textContent = dalamRadius ? 'Dalam Radius Absensi' : 'Di luar Radius Absensi';
+  } else {
+    document.getElementById('gps-dot').style.background = 'var(--tan-text)';
+    document.getElementById('gps-jarak').textContent = '-';
+    document.getElementById('gps-lokasi').textContent = 'Belum ada data lokasi';
+    document.getElementById('gps-status').textContent = 'Tidak dapat dihitung';
+  }
+
+  if (window.L) {
+    if (!leafletMap) {
+      leafletMap = L.map('gps-map', {
+        zoomControl: true, attributionControl: false, dragging: true,
+        scrollWheelZoom: true, doubleClickZoom: true, boxZoom: true, touchZoom: true, keyboard: true
+      }).setView([lat, lng], 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(leafletMap);
+    }
+    const petaBaruDibuat = !leafletMarker;
+    if (!leafletMarker) {
+      leafletMarker = L.circleMarker([lat, lng], { radius: 8, color: '#1a9a56', weight: 2, fillColor: '#1a9a56', fillOpacity: .9 })
+        .addTo(leafletMap).bindPopup('Lokasi Anda');
+    } else {
+      leafletMarker.setLatLng([lat, lng]);
+    }
+
+    gambarSemuaLokasiKerja();
+    if (terdekat) tandaiLokasiTerdekat(terdekat.lokasi);
+    // Hanya atur ulang posisi/zoom peta sekali saat peta baru dibuat (fix GPS
+    // pertama) — setelah itu biarkan karyawan bebas geser/zoom peta sendiri,
+    // supaya tidak otomatis ter-reset setiap ada update GPS baru.
+    if (petaBaruDibuat) {
+      if (terdekat) {
+        const titikBounds = [[lat, lng]].concat(daftarLokasiKerja.map(l => [l.lat, l.lng]));
+        leafletMap.fitBounds(L.latLngBounds(titikBounds), { padding: [26, 26], maxZoom: 17 });
+      } else {
+        leafletMap.setView([lat, lng], 16);
+      }
+    }
+  }
+  cekTombolPresensi();
+}
+document.getElementById('link-kalibrasi').addEventListener('click', (e) => {
+  e.preventDefault();
+  document.getElementById('gps-status').textContent = 'Mengkalibrasi ulang...';
+  navigator.geolocation.getCurrentPosition(
+    pos => updatePosisi(pos.coords.latitude, pos.coords.longitude, Math.round(pos.coords.accuracy), pos.timestamp),
+    err => {
+      if (err.code === err.PERMISSION_DENIED) {
+        tampilkanGpsDiblokir(err.message);
+      } else {
+        showToast(pesanErrorGps(err), false);
+        kirimLogKeSistem('ERROR_GPS_KALIBRASI', err.message + ' (code ' + err.code + ')');
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+  );
+});
+
+async function muatDaftarNama(percobaan) {
+  percobaan = percobaan || 1;
+  const res = await api('daftarKaryawan', {});
+  const sel = document.getElementById('login-nama');
+  const retryBtn = document.getElementById('retry-nama');
+  sel.innerHTML = '<option value="">-- Pilih Nama --</option>';
+  if (retryBtn) retryBtn.classList.add('hidden');
+
+  if (res.sukses === false) {
+    // Beberapa HP Android dengan koneksi lambat/putus-putus gagal memuat daftar nama
+    // sehingga dropdown tampak kosong tanpa penjelasan. Coba ulang otomatis dulu,
+    // baru tampilkan tombol muat ulang kalau tetap gagal setelah beberapa kali.
+    if (percobaan < 3) {
+      await new Promise((r) => setTimeout(r, 1200));
+      return muatDaftarNama(percobaan + 1);
+    }
+    showToast(res.pesan || 'Gagal memuat daftar nama. Cek koneksi internet Anda.', false);
+    if (retryBtn) retryBtn.classList.remove('hidden');
+  } else if (res.daftar) {
+    res.daftar.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+  }
+
+  // Cek apakah HP ini sudah pernah dipakai login sukses (bind nama)
+  const bindNama = localStorage.getItem('ray_bind_nama_' + KODE_KLIEN);
+  if (bindNama) {
+    sel.value = bindNama;
+    sel.disabled = true;
+    const lbl = document.createElement('div');
+    lbl.style.fontSize = '12px'; lbl.style.color = 'var(--red)'; lbl.style.marginTop = '4px';
+    lbl.textContent = '* Perangkat ini telah terkunci secara permanen untuk absen atas nama ' + bindNama + '.';
+    sel.parentNode.insertBefore(lbl, sel.nextSibling);
+  }
+}
+document.getElementById('retry-nama').addEventListener('click', (e) => {
+  e.preventDefault();
+  muatDaftarNama();
+});
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const sel = document.getElementById('login-nama');
+  const nama = localStorage.getItem('ray_bind_nama_' + KODE_KLIEN) || sel.value;
+  const pin = document.getElementById('login-pin').value.trim();
+  if (!nama) return showToast('Pilih nama Anda dulu.', false);
+  if (!/^[0-9]{4}$/.test(pin)) return showToast('PIN harus 4 digit angka.', false);
+  const btn = document.getElementById('btn-login');
+  setBusy(btn, true, 'Memproses...', 'Masuk');
+  const res = await api('login', { nama, pin });
+  setBusy(btn, false, '', 'Masuk');
+  if (!res.sukses) {
+    showToast(res.pesan || 'Login gagal.', false);
+    kirimLogKeSistem('ERROR_LOGIN', res.pesan || 'Login gagal.', nama);
+    return;
+  }
+  sesi = { nama, pin, bagianKerja: res.bagianKerja, jabatan: res.jabatan || '', fotoUrl: res.fotoUrl || '', status: res.status };
+  
+  // Mengunci perangkat ini untuk nama yang login
+  localStorage.setItem('ray_bind_nama_' + KODE_KLIEN, nama);
+  // Persistensi Sesi agar tidak hilang waktu reload
+  localStorage.setItem('ray_karyawan_session_' + KODE_KLIEN, JSON.stringify(sesi));
+  
+  document.getElementById('login-pin').value = '';
+  await muatDataMasterUntukSesi();
+  mulaiPantauLokasi();
+  showScreen('home');
+});
+document.getElementById('login-pin').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-login').click(); });
+
+document.getElementById('btn-submit-daftar').addEventListener('click', async () => {
+  const nama = document.getElementById('daftar-nama').value.trim();
+  const bagian = document.getElementById('daftar-bagian').value;
+  const pin = document.getElementById('daftar-pin').value.trim();
+  const pin2 = document.getElementById('daftar-pin2').value.trim();
+  if (!nama) return showToast('Nama tidak boleh kosong.', false);
+  if (!/^[0-9]{4}$/.test(pin)) return showToast('PIN harus 4 digit angka.', false);
+  if (pin !== pin2) return showToast('PIN dan ulangi PIN tidak sama.', false);
+  const btn = document.getElementById('btn-submit-daftar');
+  setBusy(btn, true, 'Mengirim...', 'Kirim Pendaftaran');
+  const res = await api('daftarBaru', { nama, bagianKerja: bagian, pin });
+  setBusy(btn, false, '', 'Kirim Pendaftaran');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) {
+    document.getElementById('daftar-nama').value = '';
+    document.getElementById('daftar-pin').value = '';
+    document.getElementById('daftar-pin2').value = '';
+    setTimeout(() => showScreen('login'), 1200);
+  }
+});
+
+async function muatDataMasterUntukSesi() {
+  const resLok = await api('daftarLokasi', {});
+  daftarLokasiKerja = resLok.daftar || [];
+
+  document.getElementById('btn-goto-patroli').classList.toggle('hidden', sesi.bagianKerja !== 'Security');
+  document.getElementById('btn-goto-kegiatan').classList.toggle('hidden', sesi.bagianKerja !== 'Cleaning Service');
+  document.getElementById('btn-goto-laporan-kejadian').classList.toggle('hidden',
+    !(KLIEN_LAPORAN_KEJADIAN_DIIZINKAN.includes(KODE_KLIEN) && sesi.bagianKerja === 'Security'));
+
+  if (sesi.bagianKerja === 'Security') {
+    const resP = await api('daftarTitikPatroli', {}); daftarTitikPatroli = resP.daftar || [];
+  } else if (sesi.bagianKerja === 'Cleaning Service') {
+    const resT = await api('daftarTugasKebersihan', {}); daftarTugasKebersihan = resT.daftar || [];
+  }
+}
+
+function updateJam() {
+  const now = new Date();
+  const hariList = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+  const bulanList = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  document.getElementById('home-tanggal').textContent = hariList[now.getDay()] + ', ' + now.getDate() + ' ' + bulanList[now.getMonth()] + ' ' + now.getFullYear();
+  document.getElementById('home-jam').textContent = now.toLocaleTimeString('id-ID', { hour12: false });
+}
+setInterval(updateJam, 1000);
+
+function inisial(nama) {
+  const parts = String(nama || '-').trim().split(/\s+/);
+  return ((parts[0]||'')[0] || '') + ((parts[1]||'')[0] || '');
+}
+
+function cekTombolPresensi() {
+  const st = statusEfektif();
+  const btnMasuk = document.getElementById('btn-presensi-masuk');
+  const btnPulang = document.getElementById('btn-presensi-pulang');
+  const adaLokasi = !!posisiTerkini && !gpsAnomaliAktif && !akurasiBelumLayak() && gpsWarmupSelesai;
+
+  // shiftAktif = ada CLOCK IN yang belum dipasangkan CLOCK OUT. Dipakai
+  // (bukan sudahClockIn/sudahClockOut) supaya karyawan bisa CLOCK IN lagi
+  // setelah satu pasang shift selesai hari itu (lanjut/dobel shift).
+  btnMasuk.classList.toggle('btn-navy', !st.shiftAktif && adaLokasi);
+  btnMasuk.classList.toggle('btn-tan', st.shiftAktif || !adaLokasi);
+  btnMasuk.disabled = st.shiftAktif || !adaLokasi;
+
+  btnPulang.classList.toggle('btn-navy', st.shiftAktif && adaLokasi);
+  btnPulang.classList.toggle('btn-tan', !st.shiftAktif || !adaLokasi);
+  btnPulang.disabled = !st.shiftAktif || !adaLokasi;
+}
+
+function muatHome() {
+  updateJam();
+  const avatarEl = document.getElementById('home-avatar');
+  if (sesi.fotoUrl) {
+    avatarEl.innerHTML = '<img src="' + sesi.fotoUrl + '" alt="Foto ' + sesi.nama + '">';
+  } else {
+    avatarEl.textContent = inisial(sesi.nama).toUpperCase();
+  }
+  document.getElementById('home-nama').textContent = sesi.nama;
+  document.getElementById('home-bagian').textContent = sesi.bagianKerja || '-';
+  const st = sesi.status || {};
+  const pIn = document.getElementById('pill-in'), pOut = document.getElementById('pill-out');
+  pIn.textContent = st.sudahClockIn ? 'Clock In ' + st.jamMasuk : 'Belum Clock In';
+  pIn.classList.toggle('done', !!st.sudahClockIn);
+  document.getElementById('status-card-in').classList.toggle('done', !!st.sudahClockIn);
+  document.getElementById('status-sub-in').textContent = st.sudahClockIn ? ('Sudah clock in pukul ' + st.jamMasuk) : 'Anda belum melakukan clock in hari ini';
+  pOut.textContent = st.sudahClockOut ? 'Clock Out ' + st.jamPulang : 'Belum Clock Out';
+  pOut.classList.toggle('done', !!st.sudahClockOut);
+  document.getElementById('status-card-out').classList.toggle('done', !!st.sudahClockOut);
+  document.getElementById('status-sub-out').textContent = st.sudahClockOut ? ('Sudah clock out pukul ' + st.jamPulang) : 'Anda belum melakukan clock out hari ini';
+  document.getElementById('cap-masuk').textContent = st.jamMasuk || '--:--';
+  document.getElementById('cap-pulang').textContent = st.jamPulang || '--:--';
+  cekTombolPresensi();
+  // Antrian offline baru terbaca dari IndexedDB secara async; begitu selesai,
+  // tombol Masuk/Pulang dikoreksi ulang kalau ternyata ada CLOCK IN/OUT yang
+  // masih menunggu upload dari sesi sebelumnya (app baru dibuka lagi).
+  segarkanOverlayAntrianAbsen().then(cekTombolPresensi);
+
+  setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 200);
+}
+
+async function refreshStatus() {
+  const res = await api('statusUlang', { nama: sesi.nama, pin: sesi.pin });
+  if (res.sukses) {
+    sesi.status = res.status;
+    sesi.bagianKerja = res.bagianKerja;
+    sesi.jabatan = res.jabatan || '';
+    sesi.fotoUrl = res.fotoUrl || '';
+    localStorage.setItem('ray_karyawan_session_' + KODE_KLIEN, JSON.stringify(sesi));
+  }
+}
+
+async function muatRiwayatInline() {
+  renderAntrianPending();
+  const box = document.getElementById('home-riwayat');
+  box.innerHTML = '<div class="empty-state">Memuat...</div>';
+  const res = await api('riwayatAbsensi', { nama: sesi.nama, pin: sesi.pin });
+  if (!res.sukses) { box.innerHTML = '<div class="empty-state">' + res.pesan + '</div>'; return; }
+  if (!res.riwayat || !res.riwayat.length) {
+    box.innerHTML = '<div class="empty-state"><div class="big">📭</div>Belum ada riwayat absensi.</div>';
+    return;
+  }
+  box.innerHTML = res.riwayat.map(r =>
+    '<div class="riwayat-row"><span class="tgl">' + r.tanggal + '</span>' +
+    '<span class="jam">Masuk ' + (r.jamMasuk || '-') + ' &nbsp;·&nbsp; Pulang ' + (r.jamPulang || '-') + '</span></div>'
+  ).join('');
+}
+document.getElementById('btn-riwayat').addEventListener('click', () => {
+  document.getElementById('modal-riwayat').classList.remove('hidden');
+  muatRiwayatInline();
+});
+document.getElementById('btn-tutup-riwayat').addEventListener('click', () => {
+  document.getElementById('modal-riwayat').classList.add('hidden');
+});
+
+function escHtmlSlip(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function formatRpSlip(n) { return 'Rp' + (n || 0).toLocaleString('id-ID'); }
+const SLIP_NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+let slipGajiSayaTerakhir = null;
+async function muatSlipGajiInline() {
+  const box = document.getElementById('home-slipgaji');
+  box.innerHTML = '<div class="empty-state">Memuat...</div>';
+  document.getElementById('btn-unduh-slipgaji-pdf').classList.add('hidden');
+  const res = await api('ambilSlipGajiSaya', { nama: sesi.nama, pin: sesi.pin });
+  if (!res.sukses) { box.innerHTML = '<div class="empty-state">' + escHtmlSlip(res.pesan) + '</div>'; return; }
+  slipGajiSayaTerakhir = res;
+  document.getElementById('btn-unduh-slipgaji-pdf').classList.remove('hidden');
+
+  const baris = (arr) => (arr || []).map(it => '<tr><td>' + escHtmlSlip(it.nama || '-') + '</td><td class="num">' + formatRpSlip(it.jumlah) + '</td></tr>').join('');
+  const infoRow = (label, value) => '<div class="slip-info-row"><span class="lbl">' + escHtmlSlip(label) + '</span><span class="colon">:</span><span class="val">' + escHtmlSlip(value || '-') + '</span></div>';
+  const totalPendapatan = (res.pendapatan || []).reduce((s, it) => s + (it.jumlah || 0), 0);
+  const totalPengurangan = (res.pengurangan || []).reduce((s, it) => s + (it.jumlah || 0), 0);
+  const thp = totalPendapatan - totalPengurangan;
+
+  box.innerHTML =
+    '<div class="slip-sheet-head">' +
+      '<div style="display:flex; align-items:center; gap:8px;">' +
+        (logoKlienAktif ? '<img src="' + logoKlienAktif + '" alt="Logo" style="width:30px; height:30px; object-fit:contain; border-radius:6px;">' : '') +
+        '<div class="slip-sheet-nama-pt">PT Cakra Adidaya Perkasa - Soerojo Hospital</div>' +
+      '</div>' +
+      '<div style="text-align:right;">' +
+        '<div class="muted" style="font-size:10px;">Slip gaji untuk bulan</div>' +
+        '<div class="slip-sheet-bulan">' + SLIP_NAMA_BULAN[res.bulan - 1] + ' ' + res.tahun + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="slip-sheet-section-title">Rincian karyawan</div>' +
+    '<div class="slip-sheet-info-cols">' +
+      infoRow('Nama', res.nama) + infoRow('ID Karyawan', res.idKaryawan) + infoRow('Jabatan', res.jabatan) + infoRow('Departemen', res.departemen) +
+    '</div>' +
+    '<div class="slip-sheet-section-title">Rincian penghasilan</div>' +
+    '<div class="slip-sheet-grid2">' +
+      '<table><thead><tr><th>Pendapatan</th><th class="num">Jumlah</th></tr></thead><tbody>' + baris(res.pendapatan) +
+        '<tr class="slip-total-row"><td>Total pendapatan</td><td class="num">' + formatRpSlip(totalPendapatan) + '</td></tr>' +
+      '</tbody></table>' +
+      '<table><thead><tr><th>Pengurangan</th><th class="num">Jumlah</th></tr></thead><tbody>' + baris(res.pengurangan) +
+        '<tr class="slip-total-row"><td>Total pengurangan</td><td class="num">' + formatRpSlip(totalPengurangan) + '</td></tr>' +
+      '</tbody></table>' +
+    '</div>' +
+    '<div class="slip-sheet-thp">' +
+      '<div class="slip-sheet-thp-left"><div class="slip-sheet-thp-label">Take Home Pay</div><div class="muted" style="font-size:10px;">Total pendapatan - Total pengurangan</div></div>' +
+      '<div class="slip-sheet-thp-right">' + formatRpSlip(thp) + '</div>' +
+    '</div>' +
+    '<div class="slip-sheet-bottom">' +
+      '<div><div class="muted" style="font-size:11px;">Catatan</div>' + (res.catatan ? '<div style="font-size:12px; margin-top:6px;">' + escHtmlSlip(res.catatan) + '</div>' : '') + '</div>' +
+      '<div><div class="muted" style="font-size:11px;">Disetujui oleh:</div><div class="slip-sheet-ttd-space"></div><div class="slip-sheet-ttd-nama">' + escHtmlSlip(res.disetujuiNama || '-') + '</div><div class="muted" style="font-size:11px;">' + escHtmlSlip(res.disetujuiJabatan || '') + '</div></div>' +
+      '<div><div class="muted" style="font-size:11px;">Diterima oleh:</div><div class="slip-sheet-ttd-space"></div><div class="slip-sheet-ttd-nama">' + escHtmlSlip(res.nama) + '</div><div class="muted" style="font-size:11px;">' + escHtmlSlip(res.jabatan) + '</div></div>' +
+    '</div>' +
+    '<div class="slip-sheet-footer">' +
+      '<img src="icon-192.png" alt="Logo CAP">' +
+      '<div><div>Slip gaji ini dibuat dengan aplikasi <b class="slip-sheet-footer-brand">CAP Payslip Generator</b></div>' +
+      '<div>Jika terjadi kesalahan nominal bisa menghubungi Admin</div></div>' +
+    '</div>';
+}
+document.getElementById('btn-slipgaji').addEventListener('click', () => {
+  document.getElementById('modal-slipgaji').classList.remove('hidden');
+  muatSlipGajiInline();
+});
+document.getElementById('btn-tutup-slipgaji').addEventListener('click', () => {
+  document.getElementById('modal-slipgaji').classList.add('hidden');
+});
+// Dulu PDF dibuat dengan "memotret" (html2canvas) tampilan modal di layar -
+// TERBUKTI berkali-kali gagal (posisi/ukuran salah hitung kalau ada
+// fixed/overflow/scroll di sekitarnya, dan ikut menarik gaya tumpuk-ke-bawah
+// yang sengaja dipakai di tampilan HP). Sekarang PDF digambar langsung pakai
+// jsPDF (teks & kotak asli), independen dari tampilan modal - hasilnya file
+// tersendiri yang mengikuti layout template (Pendapatan/Pengurangan
+// berjejer), sementara tampilan di HP tetap seperti sekarang (tidak diubah).
+let logoRayBase64Cache = '';
+function muatLogoRayBase64() {
+  if (logoRayBase64Cache) return Promise.resolve(logoRayBase64Cache);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        logoRayBase64Cache = canvas.toDataURL('image/png');
+        resolve(logoRayBase64Cache);
+      } catch (e) { resolve(''); }
+    };
+    img.onerror = () => resolve('');
+    img.src = 'icon-192.png';
+  });
+}
+function gambarSlipGajiPdf(data) {
+  const { jsPDF } = window.jspdf;
+  const kiri = 16, kanan = 194, lebar = kanan - kiri;
+  const NAVY = [23, 56, 92], MUTED = [124, 135, 152], TEKS = [31, 41, 55], GARIS = [227, 231, 238], SOFT = [234, 240, 246], HIJAU = [227, 242, 230];
+
+  // Tinggi halaman dihitung dulu dari isinya (bukan dipaksa 1 halaman A4
+  // penuh/297mm) - supaya tidak ada sisa kertas kosong di bawah, dan jarak
+  // antar bagian dipadatkan (termasuk celah Rincian karyawan -> Rincian
+  // penghasilan yang tadinya kebesaran) supaya hasilnya mendekati setengah
+  // halaman A4. 113.8 = akumulasi semua "y +=" tetap di proses gambar sampai
+  // baseline teks footer, ditambah tinggi visual footer di bawah baseline
+  // (logo, ~6.8mm) + margin bawah kertas (8mm). Kalau urutan "y +=" di bawah
+  // berubah, angka ini harus ikut disesuaikan (lihat perhitungan simulasi
+  // yang dipakai untuk menurunkan angka ini, jangan tebak manual).
+  const jmlBarisInfo = 4;
+  const tinggiTabel = (rows) => 6 + (rows || []).length * 5 + 6;
+  const tinggiTabelMax = Math.max(tinggiTabel(data.pendapatan), tinggiTabel(data.pengurangan));
+  const tinggiIsi = 113.8 + jmlBarisInfo * 5 + tinggiTabelMax;
+  // PENTING: jsPDF diam-diam MENUKAR lebar/tinggi di "format" kalau orientasi
+  // default ('portrait', wajib tinggi >= lebar) tidak cocok dengan angka yang
+  // dikirim - inilah yang bikin hasil sebelumnya kepotong lebar-nya jadi
+  // sesempit tinggiIsi (karena tinggiIsi < 210, dianggap harus ditukar jadi
+  // lebar). Deklarasikan orientation eksplisit sesuai kondisinya supaya
+  // jsPDF tidak pernah menukar urutan [lebar, tinggi] yang sudah benar ini.
+  const lebarHalaman = 210;
+  const orientasiHalaman = tinggiIsi >= lebarHalaman ? 'portrait' : 'landscape';
+  const doc = new jsPDF({ unit: 'mm', format: [lebarHalaman, tinggiIsi], orientation: orientasiHalaman });
+
+  let y = 16;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
+  doc.text(data.namaPerusahaan || '-', kiri, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Slip gaji untuk bulan', kanan, y - 4, { align: 'right' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
+  doc.text(data.bulanText || '-', kanan, y + 2, { align: 'right' });
+
+  y += 10;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text('Rincian karyawan', kiri, y);
+  y += 5;
+
+  const infoKiri = [['Nama karyawan', data.namaKaryawan], ['ID karyawan', data.idKaryawan], ['Jabatan', data.jabatan], ['Departemen', data.departemen]];
+  const tinggiBaris = 5;
+  infoKiri.forEach((it, i) => {
+    const ry = y + i * tinggiBaris;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    doc.text(it[0], kiri, ry);
+    doc.text(':', kiri + 32, ry);
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+    doc.text(String(it[1] || '-'), kiri + 36, ry);
+  });
+  y += infoKiri.length * tinggiBaris + 4;
+
+  doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]); doc.setLineWidth(0.2);
+  doc.line(kiri, y, kanan, y);
+  y += 6;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text('Rincian penghasilan', kiri, y);
+  y += 4;
+
+  const lebarTabel = (lebar - 8) / 2;
+  const kolom1X = kiri, kolom2X = kiri + lebarTabel + 8;
+  const tinggiHeader = 6, tinggiItem = 5, tinggiTotal = 6;
+
+  const gambarTabel = (x, label, rows, total) => {
+    let ty = y;
+    doc.setFillColor(SOFT[0], SOFT[1], SOFT[2]);
+    doc.rect(x, ty, lebarTabel, tinggiHeader, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+    doc.text(label, x + 2, ty + 4.3);
+    doc.text('Jumlah', x + lebarTabel - 2, ty + 4.3, { align: 'right' });
+    ty += tinggiHeader;
+    rows.forEach((it) => {
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+      doc.text(String(it.nama || '-'), x + 2, ty + 3.7);
+      doc.text(formatRpSlip(it.jumlah), x + lebarTabel - 2, ty + 3.7, { align: 'right' });
+      doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]); doc.line(x, ty + tinggiItem, x + lebarTabel, ty + tinggiItem);
+      ty += tinggiItem;
+    });
+    doc.setFillColor(SOFT[0], SOFT[1], SOFT[2]);
+    doc.rect(x, ty, lebarTabel, tinggiTotal, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total ' + label.toLowerCase(), x + 2, ty + 4.3);
+    doc.text(formatRpSlip(total), x + lebarTabel - 2, ty + 4.3, { align: 'right' });
+    ty += tinggiTotal;
+    return ty;
+  };
+
+  const totalPendapatan = (data.pendapatan || []).reduce((s, it) => s + (it.jumlah || 0), 0);
+  const totalPengurangan = (data.pengurangan || []).reduce((s, it) => s + (it.jumlah || 0), 0);
+  const akhir1 = gambarTabel(kolom1X, 'Pendapatan', data.pendapatan || [], totalPendapatan);
+  const akhir2 = gambarTabel(kolom2X, 'Pengurangan', data.pengurangan || [], totalPengurangan);
+  y = Math.max(akhir1, akhir2) + 6;
+
+  const thp = totalPendapatan - totalPengurangan;
+  const tinggiThp = 13, lebarThp = 46;
+  doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]);
+  doc.rect(kiri, y, lebar, tinggiThp, 'S');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text('Take Home Pay', kiri + 4, y + 5.5);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Total pendapatan - Total pengurangan', kiri + 4, y + 10);
+  doc.setFillColor(HIJAU[0], HIJAU[1], HIJAU[2]);
+  doc.rect(kanan - lebarThp, y, lebarThp, tinggiThp, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text(formatRpSlip(thp), kanan - 4, y + 8, { align: 'right' });
+  y += tinggiThp + 8;
+
+  const kolC = kiri, kolD = kiri + 62, kolE = kiri + 124;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Catatan', kolC, y);
+  doc.text('Disetujui oleh:', kolD, y);
+  doc.text('Diterima oleh:', kolE, y);
+  if (data.catatan) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+    doc.text(doc.splitTextToSize(data.catatan, 55), kolC, y + 5);
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text(data.disetujuiNama || '-', kolD, y + 12.5);
+  doc.text(data.namaKaryawan || '-', kolE, y + 12.5);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text(data.disetujuiJabatan || '', kolD, y + 17);
+  doc.text(data.jabatan || '', kolE, y + 17);
+  y += 22;
+
+  doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]);
+  doc.line(kiri, y, kanan, y);
+  y += 5;
+
+  // Logo CAP (sama seperti di header aplikasi, icon-192.png) + teks branding
+  // "CAP Payslip Generator" tebal-biru, baris kedua keterangan kontak
+  // admin. Logo diposisikan supaya pusat vertikalnya sejajar dengan pusat
+  // vertikal blok teks 2 baris di sampingnya (baseline baris 1 = y, baseline
+  // baris 2 = y+4 -> pusat teks sekitar y+1.3), bukan sekadar nempel di atas.
+  const ukuranLogo = 11;
+  let xTeks = kiri;
+  if (data.logoRayBase64) {
+    try { doc.addImage(data.logoRayBase64, 'PNG', kiri, y - 4.2, ukuranLogo, ukuranLogo); xTeks = kiri + ukuranLogo + 4; } catch (e) {}
+  }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Slip gaji ini dibuat dengan aplikasi ', xTeks, y);
+  const lebarAwalFooter = doc.getTextWidth('Slip gaji ini dibuat dengan aplikasi ');
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
+  doc.text('CAP Payslip Generator', xTeks + lebarAwalFooter, y);
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Jika terjadi kesalahan nominal bisa menghubungi Admin', xTeks, y + 4);
+
+  return doc;
+}
+
+document.getElementById('btn-unduh-slipgaji-pdf').addEventListener('click', async () => {
+  if (!slipGajiSayaTerakhir) return;
+  const d = slipGajiSayaTerakhir;
+  const bulanText = SLIP_NAMA_BULAN[d.bulan - 1] + ' ' + d.tahun;
+  const logoRayBase64 = await muatLogoRayBase64();
+  const doc = gambarSlipGajiPdf({
+    namaPerusahaan: 'PT Cakra Adidaya Perkasa - Soerojo Hospital',
+    bulanText,
+    namaKaryawan: d.nama, idKaryawan: d.idKaryawan, jabatan: d.jabatan, departemen: d.departemen,
+    pendapatan: d.pendapatan, pengurangan: d.pengurangan,
+    catatan: d.catatan, disetujuiNama: d.disetujuiNama, disetujuiJabatan: d.disetujuiJabatan, logoRayBase64
+  });
+  const namaFile = 'Slip_Gaji_' + String(d.nama || 'Saya').replace(/[^a-zA-Z0-9]+/g, '_') + '_' + SLIP_NAMA_BULAN[d.bulan - 1] + d.tahun + '.pdf';
+  doc.save(namaFile);
+});
+
+let presensiJenis = null, presensiFotoB64 = null;
+function bukaModalPresensi(jenis) {
+  presensiJenis = jenis;
+  presensiFotoB64 = null;
+  document.getElementById('presensi-modal-title').textContent = jenis === 'CLOCK IN' ? 'Presensi Masuk' : 'Presensi Pulang';
+  document.getElementById('presensi-shot').classList.add('hidden');
+  document.getElementById('presensi-camwrap').classList.remove('hidden');
+  document.getElementById('presensi-shoot-wrap').classList.remove('hidden');
+  document.getElementById('presensi-retake-wrap').classList.add('hidden');
+  document.getElementById('modal-presensi').classList.remove('hidden');
+  startCamera(document.getElementById('presensi-video'), 'presensi', 'user');
+}
+function tutupModalPresensi() {
+  stopCameraByKey('presensi');
+  document.getElementById('modal-presensi').classList.add('hidden');
+}
+document.getElementById('btn-presensi-masuk').addEventListener('click', () => bukaModalPresensi('CLOCK IN'));
+document.getElementById('btn-presensi-pulang').addEventListener('click', () => bukaModalPresensi('CLOCK OUT'));
+document.getElementById('btn-batal-presensi').addEventListener('click', tutupModalPresensi);
+document.getElementById('btn-shoot-presensi').addEventListener('click', () => {
+  const dataUrl = captureFrame(document.getElementById('presensi-video'), document.getElementById('presensi-canvas'));
+  presensiFotoB64 = base64Of(dataUrl);
+  document.getElementById('presensi-shot').src = dataUrl;
+  document.getElementById('presensi-shot').classList.remove('hidden');
+  document.getElementById('presensi-camwrap').classList.add('hidden');
+  document.getElementById('presensi-shoot-wrap').classList.add('hidden');
+  document.getElementById('presensi-retake-wrap').classList.remove('hidden');
+  stopCameraByKey('presensi');
+});
+document.getElementById('btn-retake-presensi').addEventListener('click', async () => {
+  presensiFotoB64 = null;
+  document.getElementById('presensi-shot').classList.add('hidden');
+  document.getElementById('presensi-camwrap').classList.remove('hidden');
+  document.getElementById('presensi-shoot-wrap').classList.remove('hidden');
+  document.getElementById('presensi-retake-wrap').classList.add('hidden');
+  await startCamera(document.getElementById('presensi-video'), 'presensi', 'user');
+});
+document.getElementById('btn-flip-presensi').addEventListener('click', () => toggleCamera(document.getElementById('presensi-video'), 'presensi'));
+document.getElementById('btn-kirim-presensi').addEventListener('click', async () => {
+  if (!presensiFotoB64 || !posisiTerkini) return showToast('Foto dan lokasi wajib tersedia.', false);
+  if (gpsAnomaliAktif) return showToast('Lokasi GPS terdeteksi tidak wajar (' + gpsAnomaliPesan + '). Coba lagi di lokasi yang stabil.', false);
+  if (akurasiBelumLayak()) return showToast('Akurasi GPS masih kasar (±' + posisiTerkini.akurasi + 'm). Tunggu sebentar atau pindah ke tempat terbuka.', false);
+  const btn = document.getElementById('btn-kirim-presensi');
+  setBusy(btn, true, 'Mengirim...', 'Kirim');
+  const payload = {
+    nama: sesi.nama, pin: sesi.pin, jenisAbsen: presensiJenis,
+    fotoBase64: presensiFotoB64, mimeType: 'image/jpeg',
+    lat: posisiTerkini.lat, lng: posisiTerkini.lng, akurasi: posisiTerkini.akurasi
+  };
+  const res = await api('simpanAbsen', payload);
+  setBusy(btn, false, '', 'Kirim');
+
+  // TIDAK ADA KONEKSI (bukan ditolak server) -> antre di IndexedDB device ini,
+  // tampil & bisa diupload ulang manual dari modal Riwayat Absensi.
+  if (res.offline) {
+    await tambahAntrian({
+      action: 'simpanAbsen', payload,
+      labelTampilan: presensiJenis === 'CLOCK IN' ? 'Presensi Masuk' : 'Presensi Pulang',
+      waktuTampilan: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    });
+    antrianAbsenTerakhirJenis = presensiJenis;
+    showToast('Tidak ada koneksi. Presensi tersimpan di perangkat, akan diupload otomatis saat sinyal kembali.', true);
+    tutupModalPresensi();
+    muatHome();
+    return;
+  }
+
+  showToast(res.pesan, res.sukses);
+
+  // LOG BILA GAGAL ABSEN
+  if (!res.sukses) kirimLogKeSistem('ERROR_ABSEN', res.pesan);
+
+  if (res.sukses) {
+    tutupModalPresensi();
+    await refreshStatus();
+    muatHome();
+  }
+});
+
+let patroliState = { namaPos: null, fotoB64: null };
+function resetPatroliScreen() {
+  patroliState = { namaPos: null, fotoB64: null };
+  document.getElementById('patroli-step-pilih').classList.remove('hidden');
+  document.getElementById('patroli-step-scan').classList.add('hidden');
+  document.getElementById('patroli-step-lapor').classList.add('hidden');
+  const sel = document.getElementById('patroli-pilih-manual');
+  sel.innerHTML = '<option value="">Pilih pos...</option>';
+  daftarTitikPatroli.forEach(t => { const o = document.createElement('option'); o.value = t.nama; o.textContent = t.nama; sel.appendChild(o); });
+}
+function mulaiLaporPatroli(namaPos) {
+  const ada = daftarTitikPatroli.find(t => t.nama === namaPos);
+  if (!ada) { showToast('Titik pos "' + namaPos + '" tidak dikenal.', false); resetPatroliScreen(); return; }
+  patroliState.namaPos = namaPos;
+  document.getElementById('patroli-nama-pos').textContent = namaPos;
+  document.getElementById('patroli-step-pilih').classList.add('hidden');
+  document.getElementById('patroli-step-scan').classList.add('hidden');
+  document.getElementById('patroli-step-lapor').classList.remove('hidden');
+  document.getElementById('patroli-shot').classList.add('hidden');
+  document.getElementById('patroli-camwrap2').classList.remove('hidden');
+  document.getElementById('btn-shoot-patroli').classList.remove('hidden');
+  document.getElementById('btn-retake-patroli').classList.add('hidden');
+  document.getElementById('btn-kirim-patroli').disabled = true;
+  startCamera(document.getElementById('patroli-video2'), 'patroli2');
+  document.getElementById('btn-flip-patroli2').onclick = () => toggleCamera(document.getElementById('patroli-video2'), 'patroli2');
+  const dot = document.getElementById('patroli-loc-dot'), txt = document.getElementById('patroli-loc-text');
+  if (posisiTerkini) { dot.className = 'pulse ok'; txt.textContent = posisiTerkini.lat.toFixed(6) + ', ' + posisiTerkini.lng.toFixed(6) + ' (±' + posisiTerkini.akurasi + 'm)'; }
+  else { dot.className = 'pulse wait'; txt.textContent = 'Menunggu sinyal GPS...'; }
+}
+document.getElementById('btn-scan-patroli').addEventListener('click', async () => {
+  document.getElementById('patroli-step-pilih').classList.add('hidden');
+  document.getElementById('patroli-step-scan').classList.remove('hidden');
+  const v = document.getElementById('patroli-video');
+  const stream = await startCamera(v, 'patroliscan');
+  if (!stream) { resetPatroliScreen(); return; }
+  mulaiScanQR(v, 'patroliscan', (kode) => {
+    stopCameraByKey('patroliscan');
+    const cocok = daftarTitikPatroli.find(t => t.kodeQr && t.kodeQr === kode);
+    if (cocok) mulaiLaporPatroli(cocok.nama);
+    else { showToast('QR tidak cocok dengan titik pos manapun.', false); resetPatroliScreen(); }
+  }, () => {
+    stopCameraByKey('patroliscan');
+    showToast('Gagal memuat pemindai QR. Periksa koneksi internet lalu coba lagi.', false);
+    resetPatroliScreen();
+  });
+});
+document.getElementById('btn-batal-scan-patroli').addEventListener('click', () => { stopCameraByKey('patroliscan'); resetPatroliScreen(); });
+document.getElementById('btn-pilih-manual-patroli').addEventListener('click', () => {
+  const v = document.getElementById('patroli-pilih-manual').value;
+  if (!v) return showToast('Pilih titik pos dulu.', false);
+  mulaiLaporPatroli(v);
+});
+document.getElementById('btn-shoot-patroli').addEventListener('click', () => {
+  const dataUrl = captureFrame(document.getElementById('patroli-video2'), document.getElementById('patroli-canvas'));
+  patroliState.fotoB64 = base64Of(dataUrl);
+  document.getElementById('patroli-shot').src = dataUrl;
+  document.getElementById('patroli-shot').classList.remove('hidden');
+  document.getElementById('patroli-camwrap2').classList.add('hidden');
+  document.getElementById('btn-shoot-patroli').classList.add('hidden');
+  document.getElementById('btn-retake-patroli').classList.remove('hidden');
+  document.getElementById('btn-kirim-patroli').disabled = !posisiTerkini || gpsAnomaliAktif || akurasiBelumLayak();
+  stopCameraByKey('patroli2');
+});
+document.getElementById('btn-retake-patroli').addEventListener('click', async () => {
+  patroliState.fotoB64 = null;
+  document.getElementById('patroli-shot').classList.add('hidden');
+  document.getElementById('patroli-camwrap2').classList.remove('hidden');
+  document.getElementById('btn-shoot-patroli').classList.remove('hidden');
+  document.getElementById('btn-retake-patroli').classList.add('hidden');
+  document.getElementById('btn-kirim-patroli').disabled = true;
+  await startCamera(document.getElementById('patroli-video2'), 'patroli2');
+});
+document.getElementById('btn-batal-patroli').addEventListener('click', () => showScreen('home'));
+document.getElementById('btn-kirim-patroli').addEventListener('click', async () => {
+  if (!patroliState.fotoB64 || !posisiTerkini) return showToast('Foto dan lokasi wajib.', false);
+  if (gpsAnomaliAktif) return showToast('Lokasi GPS terdeteksi tidak wajar. Coba lagi di lokasi yang stabil.', false);
+  if (akurasiBelumLayak()) return showToast('Akurasi GPS masih kasar (±' + posisiTerkini.akurasi + 'm). Tunggu sebentar atau pindah ke tempat terbuka.', false);
+  const btn = document.getElementById('btn-kirim-patroli');
+  setBusy(btn, true, 'Mengirim...', 'Kirim Laporan Patroli');
+  const payload = {
+    nama: sesi.nama, pin: sesi.pin, namaPos: patroliState.namaPos,
+    fotoBase64: patroliState.fotoB64, mimeType: 'image/jpeg',
+    lat: posisiTerkini.lat, lng: posisiTerkini.lng, akurasi: posisiTerkini.akurasi,
+    catatan: document.getElementById('patroli-catatan').value.trim()
+  };
+  const res = await api('simpanPatroli', payload);
+  setBusy(btn, false, '', 'Kirim Laporan Patroli');
+
+  if (res.offline) {
+    await tambahAntrian({
+      action: 'simpanPatroli', payload,
+      labelTampilan: 'Patroli — ' + patroliState.namaPos,
+      waktuTampilan: new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    });
+    showToast('Tidak ada koneksi. Laporan patroli tersimpan di perangkat, akan diupload otomatis saat sinyal kembali.', true);
+    setTimeout(() => showScreen('home'), 1000);
+    return;
+  }
+
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) setTimeout(() => showScreen('home'), 1000);
+});
+
+let kegiatanState = { tugas: null, area: null, fotoSebelum: null, fotoSesudah: null };
+function resetKegiatanScreen() {
+  kegiatanState = { tugas: null, area: null, fotoSebelum: null, fotoSesudah: null };
+  document.getElementById('kegiatan-step-pilih').classList.remove('hidden');
+  document.getElementById('kegiatan-step-scan').classList.add('hidden');
+  document.getElementById('kegiatan-step-lapor').classList.add('hidden');
+  const sel = document.getElementById('kegiatan-pilih-manual');
+  sel.innerHTML = '<option value="">Pilih tugas...</option>';
+  daftarTugasKebersihan.forEach(t => { const o = document.createElement('option'); o.value = t.namaTugas; o.textContent = t.namaTugas + (t.area ? ' — ' + t.area : ''); sel.appendChild(o); });
+}
+function mulaiLaporKegiatan(namaTugas) {
+  const ada = daftarTugasKebersihan.find(t => t.namaTugas === namaTugas);
+  if (!ada) { showToast('Tugas "' + namaTugas + '" tidak dikenal.', false); resetKegiatanScreen(); return; }
+  kegiatanState.tugas = namaTugas; kegiatanState.area = ada.area;
+  document.getElementById('kegiatan-nama-tugas').textContent = namaTugas;
+  document.getElementById('kegiatan-nama-area').textContent = ada.area || '-';
+  document.getElementById('kegiatan-step-pilih').classList.add('hidden');
+  document.getElementById('kegiatan-step-scan').classList.add('hidden');
+  document.getElementById('kegiatan-step-lapor').classList.remove('hidden');
+  document.getElementById('keg-sebelum-cam').classList.remove('hidden');
+  document.getElementById('keg-shot-sebelum').classList.add('hidden');
+  document.getElementById('btn-retake-sebelum').classList.add('hidden');
+  document.getElementById('keg-sesudah-wrap').classList.add('hidden');
+  document.getElementById('keg-sesudah-hint').classList.remove('hidden');
+  document.getElementById('btn-kirim-kegiatan').disabled = true;
+  startCamera(document.getElementById('keg-video-sebelum'), 'kegSebelum');
+  document.getElementById('btn-flip-kegsebelum').onclick = () => toggleCamera(document.getElementById('keg-video-sebelum'), 'kegSebelum');
+  const dot = document.getElementById('keg-loc-dot'), txt = document.getElementById('keg-loc-text');
+  if (posisiTerkini) { dot.className = 'pulse ok'; txt.textContent = posisiTerkini.lat.toFixed(6) + ', ' + posisiTerkini.lng.toFixed(6) + ' (±' + posisiTerkini.akurasi + 'm)'; }
+  else { dot.className = 'pulse wait'; txt.textContent = 'Menunggu sinyal GPS...'; }
+}
+document.getElementById('btn-scan-kegiatan').addEventListener('click', async () => {
+  document.getElementById('kegiatan-step-pilih').classList.add('hidden');
+  document.getElementById('kegiatan-step-scan').classList.remove('hidden');
+  const v = document.getElementById('kegiatan-video');
+  const stream = await startCamera(v, 'kegscan');
+  if (!stream) { resetKegiatanScreen(); return; }
+  mulaiScanQR(v, 'kegscan', (kode) => {
+    stopCameraByKey('kegscan');
+    const cocok = daftarTugasKebersihan.find(t => t.kodeQr && t.kodeQr === kode);
+    if (cocok) mulaiLaporKegiatan(cocok.namaTugas);
+    else { showToast('QR tidak cocok dengan tugas manapun.', false); resetKegiatanScreen(); }
+  }, () => {
+    stopCameraByKey('kegscan');
+    showToast('Gagal memuat pemindai QR. Periksa koneksi internet lalu coba lagi.', false);
+    resetKegiatanScreen();
+  });
+});
+document.getElementById('btn-batal-scan-kegiatan').addEventListener('click', () => { stopCameraByKey('kegscan'); resetKegiatanScreen(); });
+document.getElementById('btn-pilih-manual-kegiatan').addEventListener('click', () => {
+  const v = document.getElementById('kegiatan-pilih-manual').value;
+  if (!v) return showToast('Pilih tugas dulu.', false);
+  mulaiLaporKegiatan(v);
+});
+function cekTombolKirimKegiatan() {
+  document.getElementById('btn-kirim-kegiatan').disabled = !(kegiatanState.fotoSebelum && kegiatanState.fotoSesudah && posisiTerkini) || gpsAnomaliAktif || akurasiBelumLayak();
+}
+document.getElementById('btn-shoot-sebelum').addEventListener('click', () => {
+  const dataUrl = captureFrame(document.getElementById('keg-video-sebelum'), document.getElementById('keg-canvas-sebelum'));
+  kegiatanState.fotoSebelum = base64Of(dataUrl);
+  document.getElementById('keg-shot-sebelum').src = dataUrl;
+  document.getElementById('keg-shot-sebelum').classList.remove('hidden');
+  document.getElementById('keg-sebelum-cam').classList.add('hidden');
+  document.getElementById('btn-retake-sebelum').classList.remove('hidden');
+  stopCameraByKey('kegSebelum');
+  document.getElementById('keg-sesudah-hint').classList.add('hidden');
+  document.getElementById('keg-sesudah-wrap').classList.remove('hidden');
+  startCamera(document.getElementById('keg-video-sesudah'), 'kegSesudah');
+  document.getElementById('btn-flip-kegsesudah').onclick = () => toggleCamera(document.getElementById('keg-video-sesudah'), 'kegSesudah');
+  cekTombolKirimKegiatan();
+});
+document.getElementById('btn-retake-sebelum').addEventListener('click', async () => {
+  kegiatanState.fotoSebelum = null;
+  document.getElementById('keg-shot-sebelum').classList.add('hidden');
+  document.getElementById('btn-retake-sebelum').classList.add('hidden');
+  document.getElementById('keg-sebelum-cam').classList.remove('hidden');
+  await startCamera(document.getElementById('keg-video-sebelum'), 'kegSebelum');
+  cekTombolKirimKegiatan();
+});
+document.getElementById('btn-shoot-sesudah').addEventListener('click', () => {
+  const dataUrl = captureFrame(document.getElementById('keg-video-sesudah'), document.getElementById('keg-canvas-sesudah'));
+  kegiatanState.fotoSesudah = base64Of(dataUrl);
+  document.getElementById('keg-shot-sesudah').src = dataUrl;
+  document.getElementById('keg-shot-sesudah').classList.remove('hidden');
+  document.getElementById('keg-sesudah-cam').classList.add('hidden');
+  document.getElementById('btn-retake-sesudah').classList.remove('hidden');
+  stopCameraByKey('kegSesudah');
+  cekTombolKirimKegiatan();
+});
+document.getElementById('btn-retake-sesudah').addEventListener('click', async () => {
+  kegiatanState.fotoSesudah = null;
+  document.getElementById('keg-shot-sesudah').classList.add('hidden');
+  document.getElementById('btn-retake-sesudah').classList.add('hidden');
+  document.getElementById('keg-sesudah-cam').classList.remove('hidden');
+  await startCamera(document.getElementById('keg-video-sesudah'), 'kegSesudah');
+  cekTombolKirimKegiatan();
+});
+document.getElementById('btn-batal-kegiatan').addEventListener('click', () => showScreen('home'));
+document.getElementById('btn-kirim-kegiatan').addEventListener('click', async () => {
+  if (!kegiatanState.fotoSebelum || !kegiatanState.fotoSesudah) return showToast('Foto sebelum & sesudah wajib.', false);
+  if (!posisiTerkini) return showToast('Lokasi GPS belum didapat.', false);
+  if (gpsAnomaliAktif) return showToast('Lokasi GPS terdeteksi tidak wajar. Coba lagi di lokasi yang stabil.', false);
+  if (akurasiBelumLayak()) return showToast('Akurasi GPS masih kasar (±' + posisiTerkini.akurasi + 'm). Tunggu sebentar atau pindah ke tempat terbuka.', false);
+  const btn = document.getElementById('btn-kirim-kegiatan');
+  setBusy(btn, true, 'Mengirim...', 'Kirim Laporan');
+  const res = await api('simpanLaporanKegiatan', {
+    nama: sesi.nama, pin: sesi.pin, tugas: kegiatanState.tugas, area: kegiatanState.area,
+    lat: posisiTerkini.lat, lng: posisiTerkini.lng, akurasi: posisiTerkini.akurasi,
+    fotoSebelumBase64: kegiatanState.fotoSebelum, fotoSesudahBase64: kegiatanState.fotoSesudah,
+    mimeType: 'image/jpeg', catatan: document.getElementById('keg-catatan').value.trim()
+  });
+  setBusy(btn, false, '', 'Kirim Laporan');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) setTimeout(() => showScreen('home'), 1000);
+});
+
+// ========== LAPORAN KEJADIAN (khusus klien SOEROJO HOSPITAL, lihat juga api/index.ts) ==========
+// Berjenjang Anggota -> Danru -> Koordinator, dibedakan dari sesi.jabatan (bukan
+// portal terpisah). Satu nomor kejadian = satu baris data_kejadian yang diupdate
+// progresif tiap tingkat.
+let kejadianState = { dokumentasi: [], fotoAktif: null, nomorAktif: null, laporanAktif: null };
+
+function kjCekLainnya(selectEl) {
+  const inp = document.getElementById(selectEl.id + '_lainnya');
+  if (!inp) return;
+  if (selectEl.value === 'Lainnya') { inp.classList.remove('hidden'); } else { inp.classList.add('hidden'); inp.value = ''; }
+}
+function kjNilaiFinal(id) {
+  const el = document.getElementById(id);
+  if (!el) return '';
+  if (el.value === 'Lainnya') {
+    const lain = document.getElementById(id + '_lainnya');
+    return 'Lainnya: ' + (lain ? lain.value.trim() : '');
+  }
+  return el.value;
+}
+function kjTambahKronologi() {
+  const row = document.createElement('div');
+  row.className = 'kronologi-row';
+  row.innerHTML = '<input type="time" class="kj-waktu-krono"><input type="text" class="kj-uraian-krono" placeholder="Uraian fakta/tindakan..."><button type="button" class="btn-x">✕</button>';
+  row.querySelector('.btn-x').addEventListener('click', () => row.remove());
+  document.getElementById('kj-kronologi-container').appendChild(row);
+}
+function kjTambahTindakanDanru() {
+  const row = document.createElement('div');
+  row.className = 'kronologi-row tindakan-danru-row';
+  row.innerHTML = '<input type="time" class="kj-waktu-tindakan"><input type="text" class="kj-isi-tindakan" placeholder="Perintah/tindakan & hasilnya..."><button type="button" class="btn-x">✕</button>';
+  row.querySelector('.btn-x').addEventListener('click', () => row.remove());
+  document.getElementById('kj-tindakanDanru-container').appendChild(row);
+}
+const KJ_DYN_FIELDS = {
+  pihak: [['nama', 'Nama'], ['status', 'Status/peran'], ['kontak', 'Kontak/unit'], ['ket', 'Keterangan singkat']],
+  aset: [['nama', 'Barang/aset'], ['id', 'Identitas/nomor'], ['kondisi', 'Kondisi/jumlah'], ['nilai', 'Nilai sementara']],
+  bukti: [['jenis', 'Jenis/deskripsi'], ['sumber', 'Sumber/lokasi'], ['kepada', 'Diserahkan kepada'], ['waktu', '', 'datetime-local']],
+};
+function kjTambahDyn(tipe) {
+  const box = document.createElement('div');
+  box.className = 'dyn-box ' + tipe + '-row';
+  const fieldsHtml = KJ_DYN_FIELDS[tipe].map(f => {
+    const tipeInput = f[2] || 'text';
+    return '<input type="' + tipeInput + '" class="f-' + f[0] + '"' + (f[1] ? ' placeholder="' + f[1] + '"' : '') + '>';
+  }).join('');
+  box.innerHTML = '<div class="dyn-box-title"><span>Data</span><button type="button" class="btn-hapus">Hapus</button></div><div class="grid-2">' + fieldsHtml + '</div>';
+  box.querySelector('.btn-hapus').addEventListener('click', () => box.remove());
+  document.getElementById('kj-' + tipe + '-container').appendChild(box);
+}
+function kjKumpulkanKronologi() {
+  return Array.from(document.querySelectorAll('#kj-kronologi-container .kronologi-row')).map(r => ({
+    waktu: r.querySelector('.kj-waktu-krono').value, uraian: r.querySelector('.kj-uraian-krono').value,
+  })).filter(x => x.waktu || x.uraian);
+}
+function kjKumpulkanTindakanDanru() {
+  return Array.from(document.querySelectorAll('#kj-tindakanDanru-container .tindakan-danru-row')).map(r => ({
+    waktu: r.querySelector('.kj-waktu-tindakan').value, isi: r.querySelector('.kj-isi-tindakan').value,
+  })).filter(x => x.waktu || x.isi);
+}
+function kjKumpulkanDyn(tipe) {
+  const keys = KJ_DYN_FIELDS[tipe].map(f => f[0]);
+  return Array.from(document.querySelectorAll('#kj-' + tipe + '-container .dyn-box')).map(box => {
+    const o = {};
+    keys.forEach(k => { const el = box.querySelector('.f-' + k); o[k] = el ? el.value : ''; });
+    return o;
+  }).filter(o => Object.values(o).some(v => v));
+}
+
+function kjRenderDokumentasi() {
+  const c = document.getElementById('kj-dok-container');
+  c.innerHTML = '';
+  kejadianState.dokumentasi.forEach((d, i) => {
+    const row = document.createElement('div');
+    row.className = 'dyn-foto-row';
+    const img = document.createElement('img'); img.src = 'data:image/jpeg;base64,' + d.base64;
+    const span = document.createElement('span'); span.className = 'ket'; span.textContent = d.keterangan;
+    const btnX = document.createElement('button'); btnX.type = 'button'; btnX.className = 'btn-x'; btnX.textContent = '✕';
+    btnX.addEventListener('click', () => { kejadianState.dokumentasi.splice(i, 1); kjRenderDokumentasi(); });
+    row.appendChild(img); row.appendChild(span); row.appendChild(btnX);
+    c.appendChild(row);
+  });
+}
+function kjMulaiTambahFoto() {
+  document.getElementById('kejadian-view-anggota').classList.add('hidden');
+  document.getElementById('kejadian-step-foto').classList.remove('hidden');
+  document.getElementById('kejadian-shot-foto').classList.add('hidden');
+  document.getElementById('kejadian-camwrap').classList.remove('hidden');
+  document.getElementById('kejadian-foto-shoot-wrap').classList.remove('hidden');
+  document.getElementById('kejadian-foto-retake-wrap').classList.add('hidden');
+  document.getElementById('kejadian-foto-ket').value = '';
+  kejadianState.fotoAktif = null;
+  startCamera(document.getElementById('kejadian-video-foto'), 'kejadianFoto');
+  document.getElementById('btn-flip-kejadian-foto').onclick = () => toggleCamera(document.getElementById('kejadian-video-foto'), 'kejadianFoto');
+}
+document.getElementById('btn-shoot-kejadian-foto').addEventListener('click', () => {
+  const dataUrl = captureFrame(document.getElementById('kejadian-video-foto'), document.getElementById('kejadian-canvas-foto'));
+  kejadianState.fotoAktif = base64Of(dataUrl);
+  document.getElementById('kejadian-shot-foto').src = dataUrl;
+  document.getElementById('kejadian-shot-foto').classList.remove('hidden');
+  document.getElementById('kejadian-camwrap').classList.add('hidden');
+  document.getElementById('kejadian-foto-shoot-wrap').classList.add('hidden');
+  document.getElementById('kejadian-foto-retake-wrap').classList.remove('hidden');
+  stopCameraByKey('kejadianFoto');
+});
+document.getElementById('btn-galeri-kejadian-foto').addEventListener('click', () => {
+  document.getElementById('kejadian-file-foto').click();
+});
+document.getElementById('kejadian-file-foto').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const dataUrl = ev.target.result;
+    kejadianState.fotoAktif = base64Of(dataUrl);
+    document.getElementById('kejadian-shot-foto').src = dataUrl;
+    document.getElementById('kejadian-shot-foto').classList.remove('hidden');
+    document.getElementById('kejadian-camwrap').classList.add('hidden');
+    document.getElementById('kejadian-foto-shoot-wrap').classList.add('hidden');
+    document.getElementById('kejadian-foto-retake-wrap').classList.remove('hidden');
+    stopCameraByKey('kejadianFoto');
+  };
+  reader.readAsDataURL(file);
+});
+document.getElementById('btn-retake-kejadian-foto').addEventListener('click', async () => {
+  kejadianState.fotoAktif = null;
+  document.getElementById('kejadian-shot-foto').classList.add('hidden');
+  document.getElementById('kejadian-camwrap').classList.remove('hidden');
+  document.getElementById('kejadian-foto-shoot-wrap').classList.remove('hidden');
+  document.getElementById('kejadian-foto-retake-wrap').classList.add('hidden');
+  await startCamera(document.getElementById('kejadian-video-foto'), 'kejadianFoto');
+});
+document.getElementById('btn-batal-kejadian-foto').addEventListener('click', () => {
+  stopCameraByKey('kejadianFoto');
+  document.getElementById('kejadian-step-foto').classList.add('hidden');
+  document.getElementById('kejadian-view-anggota').classList.remove('hidden');
+});
+document.getElementById('btn-simpan-kejadian-foto').addEventListener('click', () => {
+  if (!kejadianState.fotoAktif) return showToast('Ambil foto dulu.', false);
+  const ket = document.getElementById('kejadian-foto-ket').value.trim() || '-';
+  kejadianState.dokumentasi.push({ base64: kejadianState.fotoAktif, mimeType: 'image/jpeg', keterangan: ket });
+  kejadianState.fotoAktif = null;
+  kjRenderDokumentasi();
+  document.getElementById('kejadian-step-foto').classList.add('hidden');
+  document.getElementById('kejadian-view-anggota').classList.remove('hidden');
+});
+
+function resetLaporanKejadianScreen() {
+  document.getElementById('kejadian-step-foto').classList.add('hidden');
+  document.getElementById('kejadian-view-anggota').classList.add('hidden');
+  document.getElementById('kejadian-view-danru').classList.add('hidden');
+  document.getElementById('kejadian-view-koordinator').classList.add('hidden');
+  const jab = sesi.jabatan || 'Anggota';
+  if (jab === 'Komandan Regu (Danru)') {
+    document.getElementById('kejadian-view-danru').classList.remove('hidden');
+    document.getElementById('kj-danru-ringkasan').classList.add('hidden');
+    document.getElementById('kj-danru-form').classList.add('hidden');
+    kjMuatDaftar('kj-danru-pilih');
+  } else if (jab === 'Komandan Peleton (Danton)') {
+    document.getElementById('kejadian-view-koordinator').classList.remove('hidden');
+    document.getElementById('kj-koord-ringkasan').classList.add('hidden');
+    document.getElementById('kj-koord-form').classList.add('hidden');
+    kjMuatDaftar('kj-koord-pilih');
+  } else {
+    document.getElementById('kejadian-view-anggota').classList.remove('hidden');
+    kejadianState = { dokumentasi: [], fotoAktif: null, nomorAktif: null, laporanAktif: null };
+    ['kj-lokasi', 'kj-unit', 'kj-waktuTerjadi', 'kj-waktuDiketahui', 'kj-namaPelapor', 'kj-telpPelapor',
+      'kj-asalPelapor', 'kj-idPetugas', 'kj-kondisiAwal', 'kj-pihakNama', 'kj-pihakWaktu', 'kj-pihakRespons',
+      'kj-korban', 'kj-bahayaSerahTerima', 'kj-waktuSerah', 'kj-namaDanruAwal'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('kj-jenisLaporan').value = ''; document.getElementById('kj-jenisLaporan_lainnya').classList.add('hidden'); document.getElementById('kj-jenisLaporan_lainnya').value = '';
+    document.getElementById('kj-level').value = '';
+    document.getElementById('kj-namaPetugas').value = sesi.nama || '';
+    document.getElementById('kj-tindakanKeselamatan').value = 'Tidak diperlukan';
+    document.getElementById('kj-tindakanPengamanan').value = 'Perimeter';
+    document.getElementById('kj-pernyataan').checked = false;
+    document.getElementById('kj-namaPelaksanaSerah').value = sesi.nama || '';
+    document.getElementById('kj-kronologi-container').innerHTML = '';
+    document.getElementById('kj-pihak-container').innerHTML = '';
+    document.getElementById('kj-aset-container').innerHTML = '';
+    document.getElementById('kj-bukti-container').innerHTML = '';
+    kjRenderDokumentasi();
+    kjTambahKronologi();
+    kjTambahDyn('pihak'); kjTambahDyn('aset'); kjTambahDyn('bukti');
+    kjMuatDaftar('kj-anggota-pilih');
+    const btn = document.getElementById('btn-kirim-kejadian-anggota');
+    btn.disabled = false; btn.textContent = 'Kirim Laporan Awal';
+  }
+}
+
+async function kjMuatDaftar(selectId) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '<option value="">Memuat...</option>';
+  const res = await api('daftarLaporanKejadianSaya', { nama: sesi.nama, pin: sesi.pin });
+  const daftar = res.daftar || [];
+  sel.innerHTML = '<option value="">-- Pilih Nomor Kejadian --</option>' +
+    daftar.map(d => '<option value="' + d.nomorKejadian + '">' + d.nomorKejadian + ' — ' + (d.lokasi || '-') + ' (' + (d.status || '-') + ')</option>').join('');
+}
+function kjRingkasanHtml(l) {
+  const baris = (label, val) => '<div style="margin-bottom:4px; font-size:13px;"><b>' + label + ':</b> ' + (val || '-') + '</div>';
+  let html = baris('Nomor', l.nomorKejadian) + baris('Lokasi', l.lokasi) + baris('Unit', l.unit) +
+    baris('Jenis Laporan', l.jenisLaporan) + baris('Level Awal', l.levelAwal) +
+    baris('Kondisi Awal', l.kondisiAwal) + baris('Status', l.status);
+  if (l.klasifikasiDanru) html += baris('Klasifikasi Danru', l.klasifikasiDanru) + baris('Hasil Verifikasi Danru', l.hasilVerifikasi);
+  return html;
+}
+document.getElementById('btn-danru-muat').addEventListener('click', async () => {
+  const nomor = document.getElementById('kj-danru-pilih').value;
+  if (!nomor) return showToast('Pilih nomor kejadian dulu.', false);
+  const res = await api('ambilLaporanKejadian', { nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor });
+  if (!res.sukses) return showToast(res.pesan, false);
+  kejadianState.nomorAktif = nomor; kejadianState.laporanAktif = res.laporan;
+  const ringkasanDanru = document.getElementById('kj-danru-ringkasan');
+  ringkasanDanru.innerHTML = kjRingkasanHtml(res.laporan);
+  ringkasanDanru.classList.remove('hidden');
+  if (res.laporan.status !== 'Menunggu Verifikasi Danru') {
+    document.getElementById('kj-danru-form').classList.add('hidden');
+    ringkasanDanru.innerHTML += '<div style="color:var(--muted); font-size:12.5px; margin-top:8px;">Laporan ini sudah bukan status "Menunggu Verifikasi Danru" (statusnya: ' + (res.laporan.status || '-') + '), jadi tidak bisa diisi/diverifikasi ulang di sini. Gunakan tombol Cetak PDF untuk melihat isinya.</div>';
+    return;
+  }
+  document.getElementById('kj-danru-form').classList.remove('hidden');
+  document.getElementById('kj-waktuTerimaDanru').value = ''; document.getElementById('kj-waktuTibaDanru').value = '';
+  document.getElementById('kj-klasifikasiDanru').value = res.laporan.levelAwal || '';
+  document.getElementById('kj-perubahanLevel').value = 'Tidak'; document.getElementById('kj-perubahanLevel_lainnya').classList.add('hidden');
+  document.getElementById('kj-statusLokasi').value = 'Aman';
+  document.getElementById('kj-personelTambahan').value = ''; document.getElementById('kj-hasilVerifikasi').value = '';
+  document.getElementById('kj-tindakanDanru-container').innerHTML = ''; kjTambahTindakanDanru();
+  document.getElementById('kj-namaKoordEskalasi').value = ''; document.getElementById('kj-waktuKoordEskalasi').value = ''; document.getElementById('kj-arahanKoordEskalasi').value = '';
+  document.getElementById('kj-namaPicEskalasi').value = ''; document.getElementById('kj-waktuPicEskalasi').value = ''; document.getElementById('kj-arahanPicEskalasi').value = '';
+  document.getElementById('kj-eksternalEskalasi').value = 'Tidak ada'; document.getElementById('kj-eksternalEskalasi_lainnya').classList.add('hidden');
+  document.getElementById('kj-noLaporanEksternal').value = '';
+  document.getElementById('kj-statusBukti').value = 'Sudah diamankan'; document.getElementById('kj-statusBukti_lainnya').classList.add('hidden');
+  document.getElementById('kj-waktuSerahDanru').value = '';
+  const btn = document.getElementById('btn-kirim-kejadian-danru'); btn.disabled = false; btn.textContent = 'Simpan Verifikasi Danru';
+});
+document.getElementById('btn-anggota-cetak').addEventListener('click', async () => {
+  const nomor = document.getElementById('kj-anggota-pilih').value;
+  if (!nomor) return showToast('Pilih laporan dulu.', false);
+  const res = await api('ambilLaporanKejadian', { nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor });
+  if (!res.sukses) return showToast(res.pesan, false);
+  showToast('Menyiapkan PDF...', true);
+  await kjGambarPdf(res.laporan, kjTingkatDariStatus(res.laporan.status));
+});
+document.getElementById('btn-danru-cetak').addEventListener('click', async () => {
+  const nomor = document.getElementById('kj-danru-pilih').value;
+  if (!nomor) return showToast('Pilih nomor kejadian dulu.', false);
+  const res = await api('ambilLaporanKejadian', { nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor });
+  if (!res.sukses) return showToast(res.pesan, false);
+  showToast('Menyiapkan PDF...', true);
+  await kjGambarPdf(res.laporan, kjTingkatDariStatus(res.laporan.status));
+});
+document.getElementById('btn-kirim-kejadian-danru').addEventListener('click', async () => {
+  const nomor = kejadianState.nomorAktif;
+  if (!nomor) return showToast('Muat detail laporan dulu.', false);
+  const btn = document.getElementById('btn-kirim-kejadian-danru');
+  setBusy(btn, true, 'Menyimpan...', 'Simpan Verifikasi Danru');
+  const res = await api('simpanLaporanKejadianDanru', {
+    nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor,
+    waktuTerimaDanru: kjWib(document.getElementById('kj-waktuTerimaDanru').value),
+    waktuTibaDanru: kjWib(document.getElementById('kj-waktuTibaDanru').value),
+    klasifikasiDanru: document.getElementById('kj-klasifikasiDanru').value,
+    perubahanLevel: kjNilaiFinal('kj-perubahanLevel'),
+    statusLokasi: document.getElementById('kj-statusLokasi').value,
+    personelTambahan: document.getElementById('kj-personelTambahan').value,
+    hasilVerifikasi: document.getElementById('kj-hasilVerifikasi').value,
+    tindakanDanru: kjKumpulkanTindakanDanru(),
+    namaKoordEskalasi: document.getElementById('kj-namaKoordEskalasi').value,
+    waktuKoordEskalasi: document.getElementById('kj-waktuKoordEskalasi').value,
+    arahanKoordEskalasi: document.getElementById('kj-arahanKoordEskalasi').value,
+    namaPicEskalasi: document.getElementById('kj-namaPicEskalasi').value,
+    waktuPicEskalasi: document.getElementById('kj-waktuPicEskalasi').value,
+    arahanPicEskalasi: document.getElementById('kj-arahanPicEskalasi').value,
+    eksternalEskalasi: kjNilaiFinal('kj-eksternalEskalasi'),
+    noLaporanEksternal: document.getElementById('kj-noLaporanEksternal').value,
+    statusBukti: kjNilaiFinal('kj-statusBukti'),
+    waktuSerahDanru: kjWib(document.getElementById('kj-waktuSerahDanru').value),
+  });
+  setBusy(btn, false, '', 'Simpan Verifikasi Danru');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) setTimeout(() => showScreen('home'), 1200);
+});
+
+document.getElementById('btn-koord-muat').addEventListener('click', async () => {
+  const nomor = document.getElementById('kj-koord-pilih').value;
+  if (!nomor) return showToast('Pilih nomor kejadian dulu.', false);
+  const res = await api('ambilLaporanKejadian', { nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor });
+  if (!res.sukses) return showToast(res.pesan, false);
+  kejadianState.nomorAktif = nomor; kejadianState.laporanAktif = res.laporan;
+  const ringkasanKoord = document.getElementById('kj-koord-ringkasan');
+  ringkasanKoord.innerHTML = kjRingkasanHtml(res.laporan);
+  ringkasanKoord.classList.remove('hidden');
+  if (res.laporan.status !== 'Terverifikasi Danru') {
+    document.getElementById('kj-koord-form').classList.add('hidden');
+    ringkasanKoord.innerHTML += '<div style="color:var(--muted); font-size:12.5px; margin-top:8px;">Laporan ini sudah bukan status "Terverifikasi Danru" (statusnya: ' + (res.laporan.status || '-') + '), jadi tidak bisa ditelaah ulang di sini. Gunakan tombol Cetak PDF untuk melihat isinya.</div>';
+    return;
+  }
+  document.getElementById('kj-koord-form').classList.remove('hidden');
+  document.getElementById('kj-levelFinal').value = res.laporan.klasifikasiDanru || res.laporan.levelAwal || '';
+  document.getElementById('kj-investigasi').value = 'Tidak diperlukan'; document.getElementById('kj-investigasi_lainnya').classList.add('hidden');
+  document.getElementById('kj-rekonsiliasi').value = 'Tidak'; document.getElementById('kj-rekonsiliasi_lainnya').classList.add('hidden');
+  document.getElementById('kj-wawancara').value = 'Tidak'; document.getElementById('kj-wawancara_lainnya').classList.add('hidden');
+  document.getElementById('kj-pelaporanEks').value = 'Tidak'; document.getElementById('kj-pelaporanEks_lainnya').classList.add('hidden');
+  document.getElementById('kj-pengamananLanjut').value = 'Tidak ada'; document.getElementById('kj-pengamananLanjut_lainnya').classList.add('hidden');
+  document.getElementById('kj-lhii').value = 'Tidak'; document.getElementById('kj-lhii_lainnya').classList.add('hidden');
+  document.getElementById('kj-catatanKoord').value = ''; document.getElementById('kj-distribusiLaporan').value = '';
+  document.getElementById('kj-statusAkhirLaporan').value = 'Terkendali/monitor';
+  document.getElementById('kj-namaTtdPic').value = ''; document.getElementById('kj-namaTtdLain').value = '';
+  const btn = document.getElementById('btn-kirim-kejadian-koordinator'); btn.disabled = false; btn.textContent = 'Simpan Telaah Danton';
+});
+document.getElementById('btn-koord-cetak').addEventListener('click', async () => {
+  const nomor = document.getElementById('kj-koord-pilih').value;
+  if (!nomor) return showToast('Pilih nomor kejadian dulu.', false);
+  const res = await api('ambilLaporanKejadian', { nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor });
+  if (!res.sukses) return showToast(res.pesan, false);
+  showToast('Menyiapkan PDF...', true);
+  await kjGambarPdf(res.laporan, kjTingkatDariStatus(res.laporan.status));
+});
+document.getElementById('btn-kirim-kejadian-koordinator').addEventListener('click', async () => {
+  const nomor = kejadianState.nomorAktif;
+  if (!nomor) return showToast('Muat detail laporan dulu.', false);
+  const btn = document.getElementById('btn-kirim-kejadian-koordinator');
+  setBusy(btn, true, 'Menyimpan...', 'Simpan Telaah Danton');
+  const res = await api('simpanLaporanKejadianKoordinator', {
+    nama: sesi.nama, pin: sesi.pin, nomorKejadian: nomor,
+    levelFinal: document.getElementById('kj-levelFinal').value,
+    investigasi: kjNilaiFinal('kj-investigasi'),
+    rekonsiliasi: kjNilaiFinal('kj-rekonsiliasi'),
+    wawancara: kjNilaiFinal('kj-wawancara'),
+    pelaporanEks: kjNilaiFinal('kj-pelaporanEks'),
+    pengamananLanjut: kjNilaiFinal('kj-pengamananLanjut'),
+    lhii: kjNilaiFinal('kj-lhii'),
+    catatanKoord: document.getElementById('kj-catatanKoord').value,
+    distribusiLaporan: document.getElementById('kj-distribusiLaporan').value,
+    statusAkhirLaporan: document.getElementById('kj-statusAkhirLaporan').value,
+    namaTtdPic: document.getElementById('kj-namaTtdPic').value,
+    namaTtdLain: document.getElementById('kj-namaTtdLain').value,
+  });
+  setBusy(btn, false, '', 'Simpan Telaah Danton');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) setTimeout(() => showScreen('home'), 1200);
+});
+
+document.getElementById('btn-kirim-kejadian-anggota').addEventListener('click', async () => {
+  if (!document.getElementById('kj-pernyataan').checked) return showToast('Centang pernyataan persetujuan dulu.', false);
+  if (!document.getElementById('kj-lokasi').value || !document.getElementById('kj-namaPetugas').value) return showToast('Lokasi dan Nama Petugas Penerima wajib diisi.', false);
+  const btn = document.getElementById('btn-kirim-kejadian-anggota');
+  setBusy(btn, true, 'Mengirim...', 'Kirim Laporan Awal');
+  const res = await api('simpanLaporanKejadianAnggota', {
+    nama: sesi.nama, pin: sesi.pin,
+    lokasi: document.getElementById('kj-lokasi').value, unit: document.getElementById('kj-unit').value,
+    jenisLaporan: kjNilaiFinal('kj-jenisLaporan'), level: document.getElementById('kj-level').value,
+    waktuTerjadi: kjWib(document.getElementById('kj-waktuTerjadi').value), waktuDiketahui: kjWib(document.getElementById('kj-waktuDiketahui').value),
+    namaPelapor: document.getElementById('kj-namaPelapor').value, telpPelapor: document.getElementById('kj-telpPelapor').value,
+    asalPelapor: document.getElementById('kj-asalPelapor').value, namaPetugas: document.getElementById('kj-namaPetugas').value,
+    idPetugas: document.getElementById('kj-idPetugas').value, kondisiAwal: document.getElementById('kj-kondisiAwal').value,
+    kronologi: kjKumpulkanKronologi(),
+    tindakanKeselamatan: kjNilaiFinal('kj-tindakanKeselamatan'), tindakanPengamanan: kjNilaiFinal('kj-tindakanPengamanan'),
+    pihakDihubungi: {
+      nama: document.getElementById('kj-pihakNama').value, waktu: document.getElementById('kj-pihakWaktu').value,
+      respons: document.getElementById('kj-pihakRespons').value,
+    },
+    korban: document.getElementById('kj-korban').value, bahayaSerahTerima: document.getElementById('kj-bahayaSerahTerima').value,
+    pihakTerlibat: kjKumpulkanDyn('pihak'), barangAset: kjKumpulkanDyn('aset'), buktiLampiran: kjKumpulkanDyn('bukti'),
+    dokumentasiFiles: kejadianState.dokumentasi,
+    pernyataan: true,
+    namaPelaksanaSerah: document.getElementById('kj-namaPelaksanaSerah').value, waktuSerah: kjWib(document.getElementById('kj-waktuSerah').value),
+    namaDanruAwal: document.getElementById('kj-namaDanruAwal').value,
+  });
+  setBusy(btn, false, '', 'Kirim Laporan Awal');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) setTimeout(() => showScreen('home'), 1200);
+});
+
+// PDF ringkas (bukan template Google Docs seperti versi lama) - teks label:value
+// per bagian, dipaginasi otomatis, mengikuti gaya gambarSlipGajiPdf di atas.
+// Format tanggal/jam tersimpan (UTC) balik ke tampilan WIB yang enak dibaca.
+function kjFmtWaktu(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const teks = d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return teks + ' WIB';
+}
+// <input type="datetime-local"> selalu berisi waktu lokal perangkat (WIB untuk
+// app ini) TANPA offset zona waktu. Kalau dikirim mentah ke kolom timestamptz,
+// Postgres anggap itu UTC (geser 7 jam dari yang dimaksud user). Tempelkan
+// offset Asia/Jakarta (+07:00, tidak kenal DST) secara eksplisit di sini.
+function kjWib(val) {
+  if (!val) return null;
+  return val + (val.length === 16 ? ':00' : '') + '+07:00';
+}
+// Beri pemisah ribuan titik untuk nilai yang murni angka (mis. "Nilai
+// sementara" barang/aset); teks non-angka ditampilkan apa adanya.
+function kjFormatAngka(val) {
+  if (val == null || val === '') return '-';
+  const s = String(val).trim();
+  if (!/^\d+$/.test(s)) return s;
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+// Tingkat cetak selalu mengikuti status TERKINI laporan (bukan tingkat tetap
+// per tombol) - supaya siapapun yang cetak ulang selalu dapat isi terlengkap
+// yang sudah ada, bukan cuma sampai tingkat tombol yang dipencet.
+function kjTingkatDariStatus(status) {
+  if (status === 'Selesai') return 'A-K';
+  if (status === 'Terverifikasi Danru') return 'A-I';
+  return 'A-G';
+}
+function kjMuatGambar(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+// PDF replika tata-letak form Google Docs asli (tabel bergaris, checkbox,
+// foto diembed langsung) - digambar pakai jsPDF, bukan screenshot ataupun
+// template Google Docs (lihat percakapan sebelumnya soal alasan migrasi).
+async function kjGambarPdf(l, tingkat) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const kiri = 14, kanan = 196, lebar = kanan - kiri;
+  let y = 16;
+  const cekPage = (tambahan) => { if (y + tambahan > 283) { doc.addPage(); y = 16; } };
+
+  function judul(teks) {
+    cekPage(22); // judul + sedikit ruang isinya, supaya judul tidak nyasar sendirian di akhir halaman
+    doc.setFillColor(222, 234, 246); doc.setDrawColor(23, 56, 92); doc.setLineWidth(0.3);
+    doc.rect(kiri, y, lebar, 7, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(23, 56, 92);
+    doc.text(teks, kiri + 2, y + 5);
+    y += 9;
+  }
+  function baris2Kolom(label1, teks1, label2, teks2) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    if (label2 == null) {
+      const lines1 = doc.splitTextToSize(String(teks1 == null || teks1 === '' ? '-' : teks1), lebar - 4);
+      const h = lines1.length * 4.2 + 7;
+      cekPage(h + 1);
+      doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2); doc.rect(kiri, y, lebar, h);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+      doc.text(label1, kiri + 2, y + 4.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+      doc.text(lines1, kiri + 2, y + 9);
+      y += h;
+      return;
+    }
+    const w = lebar / 2;
+    const lines1 = doc.splitTextToSize(String(teks1 == null || teks1 === '' ? '-' : teks1), w - 6);
+    const lines2 = doc.splitTextToSize(String(teks2 == null || teks2 === '' ? '-' : teks2), w - 6);
+    const h = Math.max(lines1.length, lines2.length) * 4.2 + 7;
+    cekPage(h + 1);
+    doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2); doc.rect(kiri, y, lebar, h);
+    doc.line(kiri + w, y, kiri + w, y + h);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+    doc.text(label1, kiri + 2, y + 4.5); doc.text(label2, kiri + w + 2, y + 4.5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+    doc.text(lines1, kiri + 2, y + 9); doc.text(lines2, kiri + w + 2, y + 9);
+    y += h;
+  }
+  function gambarOpsiChecklist(x, yAwal, w, opsiNorm, nilai) {
+    const nilaiTrim = (nilai || '').trim();
+    const isLainnya = nilaiTrim.toLowerCase().startsWith('lainnya:');
+    const teksLainnya = isLainnya ? nilaiTrim.slice(nilaiTrim.indexOf(':') + 1).trim() : '';
+    let cx = x, cy = yAwal;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8);
+    opsiNorm.forEach((o) => {
+      const lebarOpsi = 4.2 + doc.getTextWidth(o.label) + 4;
+      if (cx + lebarOpsi > x + w) { cx = x; cy += 4.6; }
+      const dicentang = isLainnya ? (o.val === 'Lainnya') : (o.val === nilaiTrim);
+      doc.setDrawColor(90, 90, 90); doc.setLineWidth(0.25); doc.rect(cx, cy - 2.8, 3, 3);
+      if (dicentang) { doc.setFillColor(23, 56, 92); doc.rect(cx + 0.5, cy - 2.3, 2, 2, 'F'); }
+      doc.setTextColor(31, 41, 55);
+      doc.text(o.label, cx + 4, cy);
+      cx += lebarOpsi;
+    });
+    if (isLainnya && teksLainnya) {
+      cy += 4.6;
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7.3); doc.setTextColor(90, 90, 90);
+      doc.text('Keterangan: ' + teksLainnya, x, cy);
+    }
+    return cy;
+  }
+  function checklistBaris(label, opsi, nilai) {
+    const opsiNorm = opsi.map(o => typeof o === 'string' ? { val: o, label: o } : o);
+    const nilaiTrim = (nilai || '').trim();
+    const isLainnya = nilaiTrim.toLowerCase().startsWith('lainnya:');
+    const jmlBarisOpsi = Math.ceil(opsiNorm.length / 5);
+    const h = 6.5 + jmlBarisOpsi * 4.6 + (isLainnya ? 4.6 : 0) + 2;
+    cekPage(h + 1);
+    doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2); doc.rect(kiri, y, lebar, h);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+    doc.text(label, kiri + 2, y + 4.5);
+    gambarOpsiChecklist(kiri + 2, y + 9.3, lebar - 4, opsiNorm, nilai);
+    y += h;
+  }
+  function tabelBerulang(headers, colRatios, rows) {
+    const colWidths = colRatios.map(r => r * lebar);
+    const colX = []; let acc = kiri; colRatios.forEach(r => { colX.push(acc); acc += r * lebar; });
+    // Cek muat header + baris pertama SEKALIGUS sebelum mulai gambar, supaya
+    // header tabel tidak pernah "nyasar" sendirian di baris terakhir halaman
+    // dengan baris datanya baru mulai di halaman berikutnya.
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8);
+    let tinggiBarisPertama = 6;
+    if (rows.length) {
+      const lines0 = rows[0].map((c, i) => doc.splitTextToSize(String(c == null || c === '' ? '-' : c), colWidths[i] - 3));
+      tinggiBarisPertama = Math.max(...lines0.map(ls => ls.length)) * 3.6 + 3;
+    }
+    cekPage(6.5 + tinggiBarisPertama + 1);
+    doc.setFillColor(230, 238, 245); doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2);
+    doc.rect(kiri, y, lebar, 6.5, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60);
+    headers.forEach((h, i) => { doc.text(h, colX[i] + 1.5, y + 4.3); if (i > 0) doc.line(colX[i], y, colX[i], y + 6.5); });
+    y += 6.5;
+    if (!rows.length) {
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, 6);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(140, 140, 140);
+      doc.text('(kosong)', kiri + 2, y + 4); y += 6;
+      return;
+    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(31, 41, 55);
+    rows.forEach((cells) => {
+      const linesPerCell = cells.map((c, i) => doc.splitTextToSize(String(c == null || c === '' ? '-' : c), colWidths[i] - 3));
+      const h = Math.max(...linesPerCell.map(ls => ls.length)) * 3.6 + 3;
+      cekPage(h + 1);
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, h);
+      linesPerCell.forEach((lines, i) => { if (i > 0) doc.line(colX[i], y, colX[i], y + h); doc.text(lines, colX[i] + 1.5, y + 3.3); });
+      y += h;
+    });
+  }
+  async function tabelFoto(items) {
+    const colRatios = [0.08, 0.32, 0.60];
+    const colX = []; let acc = kiri; colRatios.forEach(r => { colX.push(acc); acc += r * lebar; });
+    const imgH = 26;
+    cekPage(6.5 + (items.length ? imgH + 3 : 6) + 1);
+    doc.setFillColor(230, 238, 245); doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2);
+    doc.rect(kiri, y, lebar, 6.5, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60);
+    ['No', 'Foto', 'Keterangan'].forEach((h, i) => { doc.text(h, colX[i] + 1.5, y + 4.3); if (i > 0) doc.line(colX[i], y, colX[i], y + 6.5); });
+    y += 6.5;
+    if (!items.length) {
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, 6);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(140, 140, 140);
+      doc.text('(tidak ada foto)', kiri + 2, y + 4); y += 6;
+      return;
+    }
+    for (let i = 0; i < items.length; i++) {
+      cekPage(imgH + 3 + 1);
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, imgH + 3);
+      doc.line(colX[1], y, colX[1], y + imgH + 3); doc.line(colX[2], y, colX[2], y + imgH + 3);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+      doc.text(String(i + 1), colX[0] + 1.5, y + 4);
+      let imgEl = null;
+      try { imgEl = await kjMuatGambar(items[i].url); } catch (e) { imgEl = null; }
+      if (imgEl && imgEl.naturalWidth) {
+        try {
+          const rasio = imgEl.naturalWidth / imgEl.naturalHeight || 1;
+          const boxW = colRatios[1] * lebar - 3, boxH = imgH;
+          let dw = boxW, dh = boxW / rasio;
+          if (dh > boxH) { dh = boxH; dw = boxH * rasio; }
+          doc.addImage(imgEl, 'JPEG', colX[1] + 1.5, y + 1.5, dw, dh);
+        } catch (e) {
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+          doc.text('Gagal memuat gambar', colX[1] + 1.5, y + imgH / 2);
+        }
+      } else {
+        doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+        doc.text('Gagal memuat gambar', colX[1] + 1.5, y + imgH / 2);
+      }
+      const ketLines = doc.splitTextToSize(items[i].keterangan || '-', colRatios[2] * lebar - 3);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+      doc.text(ketLines, colX[2] + 1.5, y + 4);
+      y += imgH + 3;
+    }
+  }
+  function signatureRow(cols) {
+    const w = lebar / cols.length, h = 36; // +-4 baris kosong di bawah judul untuk tempat tanda tangan fisik
+    cekPage(h + 1);
+    doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2);
+    cols.forEach((c, i) => {
+      const x = kiri + i * w;
+      doc.rect(x, y, w, h);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.3); doc.setTextColor(60, 60, 60);
+      doc.text(doc.splitTextToSize(c.judul, w - 4), x + 2, y + 4);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(31, 41, 55);
+      doc.text('Nama: ' + (c.nama || '-'), x + 2, y + h - 7);
+      doc.text('Tanggal/Jam: ' + (c.waktu || '-'), x + 2, y + h - 3);
+    });
+    y += h;
+  }
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(23, 56, 92);
+  doc.text('LAPORAN KEJADIAN', kiri, y); y += 3;
+  doc.setDrawColor(23, 56, 92); doc.setLineWidth(0.6); doc.line(kiri, y, kanan, y); y += 6;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100, 100, 100);
+  doc.text('PT Cakra Adidaya Perkasa', kiri, y); y += 7;
+
+  judul('A. IDENTITAS DAN KLASIFIKASI AWAL');
+  baris2Kolom('Nomor kejadian', l.nomorKejadian, 'Tanggal laporan', kjFmtWaktu(l.dibuatPada));
+  baris2Kolom('Lokasi/site', l.lokasi, 'Unit/area', l.unit);
+  checklistBaris('Jenis laporan', ['Kehilangan', 'Pencurian', 'Barang temuan', 'Perkelahian', 'Kebakaran', 'Medis', { val: 'Lainnya', label: 'Lainnya' }], l.jenisLaporan);
+  checklistBaris('Level', ['Merah', 'Oranye', 'Kuning', 'Hijau'], l.levelAwal);
+  baris2Kolom('Waktu terjadi', kjFmtWaktu(l.waktuTerjadi), 'Waktu diketahui', kjFmtWaktu(l.waktuDiketahui));
+  baris2Kolom('Pelapor', 'Nama: ' + (l.namaPelapor || '-') + '\nNo. Tlf: ' + (l.telpPelapor || '-') + '\nAsal: ' + (l.asalPelapor || '-'),
+    'Petugas penerima laporan', 'Nama: ' + (l.namaPetugas || '-') + '\nNo. ID: ' + (l.idPetugas || '-'));
+
+  y += 5;
+  judul('B. KONDISI SAAT PERTAMA DIKETAHUI');
+  baris2Kolom('Kondisi awal', l.kondisiAwal, null, null);
+
+  y += 5;
+  judul('C. KRONOLOGI LAPORAN KEJADIAN — URUT WAKTU');
+  tabelBerulang(['No', 'Waktu', 'Uraian fakta/tindakan'], [0.08, 0.14, 0.78],
+    (l.kronologi || []).map((k, i) => [String(i + 1), k.waktu || '-', k.uraian || '-']));
+
+  y += 5;
+  judul('D. TINDAKAN AWAL');
+  checklistBaris('Tindakan keselamatan', ['Tidak diperlukan', 'Alarm', 'Evakuasi', 'Pertolongan pertama', 'APAR', { val: 'Lainnya', label: 'Lainnya' }], l.tindakanKeselamatan);
+  checklistBaris('Tindakan pengamanan', ['Perimeter', 'Pembatasan akses', 'Pisahkan pihak', 'Jaga barang', { val: 'Lainnya', label: 'Lainnya' }], l.tindakanPengamanan);
+  const pd = l.pihakDihubungi || {};
+  baris2Kolom('Pihak dihubungi', 'Nama/instansi: ' + (pd.nama || '-') + '\nWaktu: ' + (pd.waktu || '-') + '\nRespons: ' + (pd.respons || '-'), 'Korban/luka', l.korban);
+  baris2Kolom('Bahaya saat serah-terima', l.bahayaSerahTerima, null, null);
+
+  y += 5;
+  judul('E. KONDISI AKHIR — PIHAK TERLIBAT & ASET');
+  const kolomE = [0.06, 0.24, 0.22, 0.22, 0.26];
+  tabelBerulang(['No', 'Nama', 'Status/peran', 'Kontak/unit', 'Keterangan'], kolomE,
+    (l.pihakTerlibat || []).map((p, i) => [String(i + 1), p.nama || '-', p.status || '-', p.kontak || '-', p.ket || '-']));
+  y += 2;
+  tabelBerulang(['No', 'Barang/aset', 'Identitas/nomor', 'Kondisi/jumlah', 'Nilai sementara'], kolomE,
+    (l.barangAset || []).map((a, i) => [String(i + 1), a.nama || '-', a.id || '-', a.kondisi || '-', kjFormatAngka(a.nilai)]));
+
+  y += 5;
+  judul('F. BUKTI/LAMPIRAN AWAL');
+  tabelBerulang(['No', 'Jenis/deskripsi', 'Sumber/lokasi', 'Diserahkan kepada & waktu'], [0.06, 0.32, 0.3, 0.32],
+    (l.buktiLampiran || []).map((b, i) => [String(i + 1), b.jenis || '-', b.sumber || '-', (b.kepada || '-') + ' / ' + (b.waktu ? kjFmtWaktu(b.waktu) : '-')]));
+
+  y += 5;
+  judul('G. PERNYATAAN & SERAH-TERIMA PELAKSANA');
+  await tabelFoto(l.dokumentasi || []);
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+  const pernyataanLines = doc.splitTextToSize('Saya menyatakan laporan di atas saya tulis berdasarkan apa yang saya ketahui dan lakukan, tanpa menambah dugaan sebagai fakta. Kondisi/lokasi telah saya serahkan kepada Danru sebagaimana dicatat.', lebar);
+  cekPage(pernyataanLines.length * 3.6 + 4);
+  doc.text(pernyataanLines, kiri, y + 3); y += pernyataanLines.length * 3.6 + 6;
+  signatureRow([
+    { judul: 'Pelaksana/Pembuat laporan', nama: l.namaPelaksanaSerah, waktu: kjFmtWaktu(l.waktuSerah) },
+    { judul: 'Danru penerima kendali', nama: l.namaDanruAwal, waktu: '-' },
+  ]);
+
+  if (tingkat === 'A-I' || tingkat === 'A-K') {
+    y += 5;
+    judul('H. VERIFIKASI DAN TINDAKAN DANRU');
+    baris2Kolom('Waktu menerima laporan', kjFmtWaktu(l.waktuTerimaDanru), 'Waktu tiba/ambil kendali', kjFmtWaktu(l.waktuTibaDanru));
+    checklistBaris('Klasifikasi setelah verifikasi', ['Merah', 'Oranye', 'Kuning', 'Hijau'], l.klasifikasiDanru);
+    baris2Kolom('Perubahan dari level awal', l.perubahanLevel, 'Status lokasi', l.statusLokasi);
+    baris2Kolom('Personel tambahan', l.personelTambahan, null, null);
+    baris2Kolom('Hasil verifikasi Danru', l.hasilVerifikasi, null, null);
+    tabelBerulang(['No', 'Waktu', 'Perintah/tindakan Danru & hasilnya'], [0.08, 0.14, 0.78],
+      (l.tindakanDanru || []).map((t, i) => [String(i + 1), t.waktu || '-', t.isi || '-']));
+
+    y += 5;
+    judul('I. ESKALASI DAN SERAH-TERIMA DANRU');
+    baris2Kolom('Komandan Peleton (Danton)', 'Nama: ' + (l.namaKoordEskalasi || '-') + '\nWaktu: ' + (l.waktuKoordEskalasi || '-') + '\nArahan: ' + (l.arahanKoordEskalasi || '-'),
+      'PIC/Manajemen', 'Nama: ' + (l.namaPicEskalasi || '-') + '\nWaktu: ' + (l.waktuPicEskalasi || '-') + '\nArahan: ' + (l.arahanPicEskalasi || '-'));
+    checklistBaris('Eksternal dihubungi', ['Tidak ada', 'Polisi', 'Damkar', 'Medis', { val: 'Lainnya', label: 'Lainnya' }], l.eksternalEskalasi);
+    baris2Kolom('No. laporan/petugas eksternal', l.noLaporanEksternal, null, null);
+    checklistBaris('Status bukti/CCTV', ['Sudah diamankan', 'Proses', 'Tidak ada', { val: 'Lainnya', label: 'Terkendala' }], l.statusBukti);
+    signatureRow([
+      { judul: 'Danru/Pemeriksa awal', nama: l.namaDanruAkhir, waktu: kjFmtWaktu(l.waktuSerahDanru) },
+      { judul: 'Danton penerima kendali', nama: l.namaKoordEskalasi, waktu: '-' },
+    ]);
+  }
+  if (tingkat === 'A-K') {
+    y += 5;
+    judul('J. TELAAH DAN KEPUTUSAN KOMANDAN PELETON');
+    checklistBaris('Level final sementara', ['Merah', 'Oranye', 'Kuning', 'Hijau'], l.levelFinal);
+    checklistBaris('Investigasi internal', ['Tidak diperlukan', { val: 'Lainnya', label: 'Diperlukan' }], l.investigasi);
+    checklistBaris('SO/rekonsiliasi', ['Tidak', { val: 'Lainnya', label: 'Ya' }], l.rekonsiliasi);
+    checklistBaris('Wawancara/klarifikasi', ['Tidak', { val: 'Lainnya', label: 'Ya' }], l.wawancara);
+    checklistBaris('Pelaporan eksternal', ['Tidak', 'Polisi', 'Damkar', 'K3', { val: 'Lainnya', label: 'Lainnya' }], l.pelaporanEks);
+    checklistBaris('Pengamanan lanjutan', ['Tidak ada', 'Tambah personel', 'Tutup area', 'Simpan bukti', 'Pantau CCTV', { val: 'Lainnya', label: 'Lainnya' }], l.pengamananLanjut);
+    checklistBaris('LHII', ['Tidak', 'Awal 1x24 jam', 'Final 3x24 jam', { val: 'Lainnya', label: 'Tenggat lain' }], l.lhii);
+    baris2Kolom('Catatan Danton', l.catatanKoord, null, null);
+
+    y += 5;
+    judul('K. DISTRIBUSI DAN STATUS');
+    baris2Kolom('Distribusi', l.distribusiLaporan, null, null);
+    checklistBaris('Status laporan', ['Terkendali/monitor', 'Investigasi berjalan', 'Diserahkan pihak berwenang', 'Siap ditutup'], l.statusAkhirLaporan);
+    signatureRow([
+      { judul: 'Komandan Peleton Satpam', nama: l.namaTtdKoord, waktu: kjFmtWaktu(l.waktuTtdKoord) },
+      { judul: 'PIC/Pejabat pengguna jasa', nama: l.namaTtdPic, waktu: '-' },
+      { judul: 'Penerima lain (bila ada)', nama: l.namaTtdLain, waktu: '-' },
+    ]);
+  }
+  doc.save('Laporan_' + String(l.nomorKejadian || 'kejadian').replace(/[^a-zA-Z0-9]+/g, '_') + '_' + tingkat + '.pdf');
+}
+
+// STARTUP AWAL + CEK SESI
+(async () => {
+  await muatInfoSistem();
+  if (!klienValid) return; // layar "Link Tidak Valid" otomatis ditampilkan di dalam muatInfoSistem()
+
+  const savedSesi = localStorage.getItem('ray_karyawan_session_' + KODE_KLIEN);
+  if (savedSesi) {
+    sesi = JSON.parse(savedSesi);
+    await muatDataMasterUntukSesi();
+    await refreshStatus();
+    mulaiPantauLokasi();
+    showScreen('home');
+    return;
+  }
+
+  await muatDaftarNama();
+  showScreen('login');
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+  window.addEventListener('load', () => { prosesAntrianOffline().catch(() => {}); });
+}
+</script>
+<script>
+// Chrome Android kadang tidak menampilkan menu "Install app" bawaan walau
+// syarat terpenuhi. Tampung event beforeinstallprompt lalu tawarkan lewat
+// tombol kita sendiri -- ini SATU-SATUNYA cara sah memicu dialog instal dari
+// JS, tidak bisa dipaksa tanpa event ini (dan event ini hanya dikirim Chrome
+// kalau browser sendiri sudah menilai halaman installable).
+var promptInstalTertunda = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  promptInstalTertunda = e;
+  var standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (!standalone) document.getElementById('banner-instal').classList.remove('hidden');
+});
+document.getElementById('btn-pasang-app').addEventListener('click', async function () {
+  document.getElementById('banner-instal').classList.add('hidden');
+  if (!promptInstalTertunda) return;
+  promptInstalTertunda.prompt();
+  await promptInstalTertunda.userChoice.catch(() => {});
+  promptInstalTertunda = null;
+});
+document.getElementById('btn-tutup-banner-instal').addEventListener('click', function () {
+  document.getElementById('banner-instal').classList.add('hidden');
+});
+window.addEventListener('appinstalled', function () {
+  document.getElementById('banner-instal').classList.add('hidden');
+  promptInstalTertunda = null;
+});
+</script>
+</body>
+</html>
