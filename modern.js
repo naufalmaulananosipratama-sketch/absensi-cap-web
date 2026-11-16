@@ -1,4 +1,4 @@
-/* CAP ONE — lapisan modern: tema, sapaan, cincin jam kerja, ringkasan 7 hari, pengingat.
+/* CAKRA APP — lapisan modern: tema, sapaan, cincin jam kerja, ringkasan 7 hari, pengingat.
    Hanya MEMBACA data lewat fungsi yang sudah ada (api, sesi, statusEfektif). Tidak mengubah alur absen. */
 (function () {
   'use strict';
