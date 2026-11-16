@@ -219,3 +219,38 @@ html[data-tema="dark"] .gps-map .leaflet-container{background:var(--surface-2);}
   .login-hero{margin:12px 0 0; border-radius:36px;}
   .shift-card{margin-top:-46px;}
 }
+
+/* ---- tata letak login: rata tengah, header dan kartu selebar sama ---- */
+#screen-login{max-width:460px; width:100%; padding:0 16px 28px; margin:0 auto;}
+.login-hero{margin:0 -16px; padding:calc(34px + env(safe-area-inset-top)) 24px 84px; text-align:center;}
+.login-hero .logo{margin:0 auto; width:92px; height:100px;}
+.login-hero .app-name{margin-top:16px; letter-spacing:4px; font-size:12px;}
+.login-hero h1{font-size:25px; max-width:none; margin:8px auto 0; line-height:1.18;}
+.login-hero p{display:inline-block; margin:14px auto 0; padding:6px 14px; border-radius:99px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.14); color:#fff; font-size:12.5px; font-weight:700; max-width:100%;}
+.login-card{max-width:none; width:100%; margin:-48px 0 0; padding:24px 18px 20px;}
+.login-card .btn{margin-top:14px;}
+@media (min-width:521px){
+  #screen-login{padding-top:5vh;}
+  .login-hero{margin:0; border-radius:36px;}
+}
+
+/* ---- layar kecil: kotak status lebih ringkas ---- */
+@media (max-width:430px){
+  .status-card{padding:12px; gap:9px;}
+  .status-ic{width:34px; height:34px; border-radius:12px;}
+  .status-title{font-size:12.5px; white-space:nowrap;}
+  .status-sub{display:none;}
+  .status-grid{gap:10px;}
+}
+@media (max-width:430px){
+  .status-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+  .status-card{min-width:0;}
+  .status-card > div:last-child{min-width:0; flex:1;}
+  .status-title{font-size:12px; overflow:hidden; text-overflow:ellipsis;}
+}
+@media (max-width:430px){
+  .status-ic{display:none;}
+  .status-card{justify-content:center; text-align:center; padding:12px 8px;}
+  .status-card > div:last-child{flex:0 1 auto;}
+  .status-title{font-size:12.5px; text-overflow:clip; overflow:visible;}
+}
