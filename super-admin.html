@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Absensi CAP — Super Admin</title>
+<link rel="manifest" href="manifest-super-admin.json">
+<script>
+// iOS membaca start_url dari manifest.json (bukan URL yang sedang dibuka) saat
+// "Tambahkan ke Layar Utama" ditekan. Manifest statis tidak punya ?klien=...,
+// jadi begitu dibuka dari ikon, link kebaca tidak lengkap -> muncul "link tidak valid".
+// Di sini manifest dibuat ulang sebagai Blob yang menyisipkan query string saat ini
+// ke dalam start_url, supaya ikon yang terpasang tetap membawa ?klien=... miliknya.
+(function () {
+  try {
+    var qs = location.search;
+    if (!qs) return;
+    var manifest = {
+      id: './super-admin.html' + qs,
+      name: 'Absensi CAP — Super Admin',
+      short_name: 'CAP Super Admin',
+      description: 'Aplikasi super admin untuk Absensi CAP',
+      start_url: './super-admin.html' + qs,
+      scope: './',
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#eef1f6',
+      theme_color: '#9b1c1c',
+      lang: 'id',
+      icons: [
+        { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    };
+    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    var link = document.querySelector('link[rel="manifest"]');
+    if (link) link.setAttribute('href', URL.createObjectURL(blob));
+  } catch (e) {}
+})();
+</script>
+<meta name="theme-color" content="#9b1c1c">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CAP Super Admin">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#eef1f6; --card:#ffffff; --border:#e3e7ee;
+    --navy:#9b1c1c; --navy-dark:#6b1212; --navy-soft:#f7ecec;
+    --tan:#e4d9c4; --tan-text:#8a7a5c;
+    --text:#1f2937; --muted:#7c8798;
+    --green-bg:#e7f7ee; --green-text:#1a9a56; --green:#1a9a56;
+    --red-bg:#fdecea; --red-text:#d5453a; --red:#d5453a;
+    --radius:14px; --radius-sm:10px;
+    --shadow:0 1px 2px rgba(16,30,54,.04), 0 4px 14px rgba(16,30,54,.06);
+    --f-body:'Inter',sans-serif; --f-mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:var(--f-body); min-height:100vh;}
+  h1,h2,h3,.display{font-weight:700; margin:0;}
+  .mono{font-family:var(--f-mono);}
+  .muted{color:var(--muted);}
+  .hidden{display:none !important;}
+  button,select,input{font-family:var(--f-body);}
+
+  .center-screen{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;}
+  .login-card{width:100%; max-width:380px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:26px; box-shadow:var(--shadow);}
+  .login-card .brand{font-size:12.5px; letter-spacing:1.5px; color:var(--muted); text-align:center; font-weight:700;}
+  .login-card h1{font-size:24px; text-align:center; margin-top:4px; margin-bottom:4px; color:var(--navy);}
+  .login-card p.muted{text-align:center; font-size:13px; margin-top:0;}
+
+  label{display:block; font-size:12.5px; color:var(--muted); font-weight:600; margin:12px 0 6px;}
+  label:first-child{margin-top:0;}
+  input[type=password],input[type=text],select{
+    width:100%; background:#fbfcfe; border:1px solid var(--border); color:var(--text);
+    padding:10px 11px; border-radius:var(--radius-sm); font-size:14px;
+  }
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--navy); outline-offset:1px;}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:10px 16px; border-radius:var(--radius-sm); border:1px solid transparent;
+    font-size:14px; font-weight:700; cursor:pointer; margin-top:12px; transition:opacity .15s, transform .1s;
+  }
+  .btn:active{transform:scale(.98);}
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
+  .btn-navy,.btn-primary{background:var(--navy); color:#fff; width:100%;}
+  .btn-green{background:var(--green); color:#fff;}
+  .btn-outline{background:#fff; border-color:var(--border); color:var(--navy);}
+  .btn-danger{background:#fff; border-color:var(--red); color:var(--red);}
+  .btn-sm{padding:6px 12px; font-size:12.5px; margin-top:0; width:auto;}
+
+  .app{display:none;}
+  .app.show{display:block;}
+  header.top{
+    background:var(--card); border-bottom:1px solid var(--border);
+    padding:14px 20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+    position:sticky; top:0; z-index:10;
+  }
+  header.top .display{font-size:19px; color:var(--navy);}
+  .role-tag{
+    font-family:var(--f-mono); font-size:11px; padding:2px 8px; border-radius:99px;
+    border:1px solid var(--navy); color:var(--navy); background:var(--navy-soft);
+  }
+  main{max-width:1000px; margin:0 auto; padding:22px 20px 60px;}
+
+  .panel{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:16px; box-shadow:var(--shadow);}
+  .section-title{font-size:15.5px; font-weight:700; margin-bottom:4px; color:var(--navy);}
+  .section-head{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
+
+  .klien-card{
+    background:var(--card); border:1px solid var(--border); border-left:3px solid var(--navy);
+    border-radius:var(--radius-sm); padding:14px 16px; margin-bottom:10px; box-shadow:var(--shadow);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;
+  }
+  .klien-card.nonaktif{border-left-color:var(--muted); opacity:.65;}
+  .klien-card .info .nama{font-weight:700; font-size:15px;}
+  .klien-card .info .kode{font-family:var(--f-mono); font-size:12px; color:var(--muted); margin-top:2px;}
+  .badge{font-size:11px; font-weight:700; padding:2px 9px; border-radius:99px; margin-left:8px; vertical-align:middle;}
+  .badge.aktif{background:var(--green-bg); color:var(--green-text);}
+  .badge.nonaktif{background:var(--red-bg); color:var(--red-text);}
+  .klien-card .actions{display:flex; gap:6px; flex-wrap:wrap;}
+
+  .empty-state{text-align:center; padding:40px 16px; color:var(--muted);}
+  .empty-state .big{font-size:32px; margin-bottom:6px;}
+
+  .toast{
+    position:fixed; right:20px; bottom:20px; max-width:340px; background:var(--card); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:12px 14px; font-size:13px; z-index:80; box-shadow:0 6px 20px rgba(16,30,54,.18);
+  }
+  .toast.ok{border-left:3px solid var(--green);}
+  .toast.err{border-left:3px solid var(--red);}
+
+  .modal-bg{
+    position:fixed; inset:0; background:rgba(15,39,64,.55); display:flex; align-items:center; justify-content:center;
+    z-index:60; padding:20px; overflow-y:auto;
+  }
+  .modal{background:var(--card); border-radius:var(--radius); padding:22px; max-width:400px; width:100%; box-shadow:var(--shadow); margin:auto;}
+  .modal h3{color:var(--navy); font-size:17px; margin-bottom:4px;}
+  .modal .close-row{display:flex; justify-content:flex-end;}
+  .modal .close-row button{background:none; border:none; font-size:18px; cursor:pointer; color:var(--muted); padding:2px 6px;}
+
+  .info-row{margin:14px 0;}
+  .info-row .lb{font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.3px; margin-bottom:4px;}
+  .copy-row{display:flex; gap:6px;}
+  .copy-row input{flex:1; font-family:var(--f-mono); font-size:12.5px;}
+  .copy-row button{margin-top:0; flex:none;}
+  #qr-box{display:flex; justify-content:center; padding:14px; background:#fff; border-radius:var(--radius-sm); margin:10px 0;}
+</style>
+</head>
+<body>
+
+<section id="screen-login" class="center-screen">
+  <div class="login-card">
+    <div class="brand">PT CAKRA ADIDAYA PERKASA</div>
+    <h1>Super Admin</h1>
+    <p class="muted">Kelola semua klien dari satu tempat</p>
+    <label>Password Super Admin</label>
+    <input type="password" id="login-password" placeholder="Masukkan password">
+    <button class="btn btn-primary" id="btn-login">Masuk</button>
+  </div>
+</section>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="display">Super Admin <span class="role-tag">MASTER</span></div>
+    <button class="btn btn-danger btn-sm" id="btn-logout">Keluar</button>
+  </header>
+
+  <main>
+    <div class="panel">
+      <div class="section-head">
+        <div class="section-title">Daftar Klien</div>
+        <button class="btn btn-navy btn-sm" id="btn-buka-tambah">+ Tambah Klien Baru</button>
+      </div>
+      <div id="daftar-klien"></div>
+    </div>
+
+    <div class="panel">
+      <div class="section-head">
+        <div class="section-title">Daftar Koordinator Lapangan</div>
+        <button class="btn btn-navy btn-sm" id="btn-buka-tambah-koordinator">+ Tambah Koordinator</button>
+      </div>
+      <p class="muted" style="font-size:13px; margin-top:-8px;">Koordinator Lapangan bisa login lewat satu link (tanpa perlu install app admin per lokasi), lalu pindah-pindah antar lokasi yang ditugaskan padanya. Hak aksesnya setara Admin CAP (Kelola Data &amp; Persetujuan) tapi dibatasi hanya ke lokasi yang dipilih di sini.</p>
+      <div id="daftar-koordinator"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal: Tambah Klien -->
+<div class="modal-bg hidden" id="modal-tambah">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-tambah">✕</button></div>
+    <h3>Tambah Klien Baru</h3>
+    <label>Nama Klien</label>
+    <input type="text" id="tambah-nama" placeholder="Contoh: PT Sumber Makmur">
+    <label>Kode Klien (untuk link, otomatis dari nama)</label>
+    <input type="text" id="tambah-kode" placeholder="contoh: sumber-makmur">
+    <label>Password Admin Klien</label>
+    <div class="copy-row">
+      <input type="text" id="tambah-password" placeholder="Minimal 6 karakter">
+      <button class="btn btn-outline btn-sm" id="btn-acak-password" type="button">Acak</button>
+    </div>
+    <label>URL Logo (opsional)</label>
+    <input type="text" id="tambah-logo" placeholder="https://... (boleh dikosongkan)">
+    <button class="btn btn-navy" id="btn-simpan-tambah">Simpan &amp; Buat Klien</button>
+  </div>
+</div>
+
+<!-- Modal: Info & QR -->
+<div class="modal-bg hidden" id="modal-info">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-info">✕</button></div>
+    <h3 id="info-nama-klien">Nama Klien</h3>
+    <p class="muted" id="info-kode-klien" style="margin-top:2px;"></p>
+
+    <div id="qr-box"></div>
+
+    <div class="info-row">
+      <div class="lb">Link Absensi Karyawan</div>
+      <div class="copy-row">
+        <input type="text" id="info-link-absensi" readonly>
+        <button class="btn btn-outline btn-sm" data-copy="info-link-absensi" type="button">Salin</button>
+      </div>
+    </div>
+    <div class="info-row">
+      <div class="lb">Link Admin CAP</div>
+      <div class="copy-row">
+        <input type="text" id="info-link-admin" readonly>
+        <button class="btn btn-outline btn-sm" data-copy="info-link-admin" type="button">Salin</button>
+      </div>
+    </div>
+    <div class="info-row">
+      <div class="lb">Link Admin Klien</div>
+      <div class="copy-row">
+        <input type="text" id="info-link-admin-klien" readonly>
+        <button class="btn btn-outline btn-sm" data-copy="info-link-admin-klien" type="button">Salin</button>
+      </div>
+    </div>
+    <div class="info-row">
+      <div class="lb">Password Admin</div>
+      <div class="copy-row">
+        <input type="text" id="info-password" readonly>
+        <button class="btn btn-outline btn-sm" data-copy="info-password" type="button">Salin</button>
+      </div>
+    </div>
+    <button class="btn btn-outline" id="btn-unduh-qr" type="button">Unduh QR (PNG)</button>
+  </div>
+</div>
+
+<!-- Modal: Edit Klien -->
+<div class="modal-bg hidden" id="modal-edit">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-edit">✕</button></div>
+    <h3>Edit Klien</h3>
+    <label>Nama Klien</label>
+    <input type="text" id="edit-nama">
+    <label>URL Logo (opsional)</label>
+    <input type="text" id="edit-logo" placeholder="https://...">
+    <button class="btn btn-navy" id="btn-simpan-edit">Simpan Perubahan</button>
+  </div>
+</div>
+
+<!-- Modal: Reset Password -->
+<div class="modal-bg hidden" id="modal-reset">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-reset">✕</button></div>
+    <h3>Reset Password Admin</h3>
+    <p class="muted" id="reset-nama-klien" style="margin-top:2px;"></p>
+    <label>Password Baru</label>
+    <div class="copy-row">
+      <input type="text" id="reset-password" placeholder="Minimal 6 karakter">
+      <button class="btn btn-outline btn-sm" id="btn-acak-reset" type="button">Acak</button>
+    </div>
+    <button class="btn btn-navy" id="btn-simpan-reset">Reset Password</button>
+  </div>
+</div>
+
+<!-- Modal: Log -->
+<div class="modal-bg hidden" id="modal-log">
+  <div class="modal" style="max-width:600px;">
+    <div class="close-row"><button data-close="modal-log">✕</button></div>
+    <h3>Log Sistem - <span id="log-nama-klien"></span></h3>
+    <div id="log-container" style="max-height:400px; overflow-y:auto; margin-top:10px; font-size:13px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px;">
+      <div class="empty-state">Memuat log...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Tambah Koordinator -->
+<div class="modal-bg hidden" id="modal-tambah-koordinator">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-tambah-koordinator">✕</button></div>
+    <h3>Tambah Koordinator Lapangan</h3>
+    <label>Nama Koordinator</label>
+    <input type="text" id="tambahkoor-nama" placeholder="Contoh: Budi Santoso">
+    <label>Kode Koordinator (untuk link, otomatis dari nama)</label>
+    <input type="text" id="tambahkoor-kode" placeholder="contoh: budi-santoso">
+    <p class="muted" style="font-size:12.5px; margin:-6px 0 0;">Tidak perlu password terpisah &mdash; koordinator login memakai password Admin CAP/Super Admin yang sama.</p>
+    <label>Lokasi yang Ditugaskan</label>
+    <div id="tambahkoor-lokasi-list" style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px;"></div>
+    <button class="btn btn-navy" id="btn-simpan-tambah-koordinator">Simpan &amp; Buat Koordinator</button>
+  </div>
+</div>
+
+<!-- Modal: Edit Koordinator (nama + lokasi) -->
+<div class="modal-bg hidden" id="modal-edit-koordinator">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-edit-koordinator">✕</button></div>
+    <h3>Edit Koordinator</h3>
+    <label>Nama Koordinator</label>
+    <input type="text" id="editkoor-nama">
+    <label>Lokasi yang Ditugaskan</label>
+    <div id="editkoor-lokasi-list" style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px;"></div>
+    <button class="btn btn-navy" id="btn-simpan-edit-koordinator">Simpan Perubahan</button>
+  </div>
+</div>
+
+<!-- Modal: Info & QR Koordinator -->
+<div class="modal-bg hidden" id="modal-info-koordinator">
+  <div class="modal">
+    <div class="close-row"><button data-close="modal-info-koordinator">✕</button></div>
+    <h3 id="infokoor-nama">Nama Koordinator</h3>
+    <p class="muted" id="infokoor-kode" style="margin-top:2px;"></p>
+
+    <div id="qrkoor-box"></div>
+
+    <div class="info-row">
+      <div class="lb">Link Login Koordinator</div>
+      <div class="copy-row">
+        <input type="text" id="infokoor-link" readonly>
+        <button class="btn btn-outline btn-sm" data-copy="infokoor-link" type="button">Salin</button>
+      </div>
+    </div>
+    <p class="muted" style="font-size:12.5px;">Password: sama seperti password Admin CAP/Super Admin.</p>
+    <button class="btn btn-outline" id="btn-unduh-qr-koor" type="button">Unduh QR (PNG)</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const API_URL = 'https://wewjoflrfnhsesboacxn.supabase.co/functions/v1/absensi-api';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indld2pvZmxyZm5oc2VzYm9hY3huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3OTg2NzMsImV4cCI6MjExMDM3NDY3M30.0lCidAyATJFxAaDZDGrurxBEOqE4eTG6AiwvtX1uuTM';
+
+let superPassword = '';
+let daftarKlien = [];
+let klienAktifSekarang = null; // dipakai modal edit/reset/log
+
+async function api(action, payload) {
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify(Object.assign({ action, password: superPassword }, payload || {}))
+    });
+    return await res.json();
+  } catch (e) {
+    return { sukses: false, pesan: 'Gagal terhubung ke server.' };
+  }
+}
+function showToast(pesan, ok) {
+  const t = document.getElementById('toast');
+  t.textContent = pesan;
+  t.className = 'toast ' + (ok ? 'ok' : 'err');
+  t.classList.remove('hidden');
+  clearTimeout(showToast._tm);
+  showToast._tm = setTimeout(() => t.classList.add('hidden'), 3800);
+}
+function setBusy(btn, busy, labelBusy, labelNormal) {
+  btn.disabled = busy;
+  btn.textContent = busy ? (labelBusy || 'Memproses...') : labelNormal;
+}
+function bukaModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function tutupModal(id) { document.getElementById(id).classList.add('hidden'); }
+document.querySelectorAll('[data-close]').forEach(btn => {
+  btn.addEventListener('click', () => tutupModal(btn.dataset.close));
+});
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', (e) => { if (e.target === bg) bg.classList.add('hidden'); });
+});
+
+function acakPassword() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let out = '';
+  for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+function slugKode(teks) {
+  return String(teks || '').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+function linkUntuk(kode) {
+  const base = location.href.replace(/super-admin\.html.*$/, '');
+  return {
+    absensi: base + 'index.html?klien=' + encodeURIComponent(kode),
+    admin: base + 'admin.html?klien=' + encodeURIComponent(kode),
+    // Link khusus untuk klien: server menolak password Admin CAP di link ini
+    // (lihat parameter "akses" di admin.html & otorisasiAdmin di backend),
+    // jadi link ini aman dibagikan ke klien tanpa risiko dipakai sebagai Admin CAP.
+    adminKlien: base + 'admin.html?klien=' + encodeURIComponent(kode) + '&akses=klien',
+  };
+}
+
+// ---------- LOGIN ----------
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const pass = document.getElementById('login-password').value;
+  if (!pass) return showToast('Masukkan password.', false);
+  const btn = document.getElementById('btn-login');
+  setBusy(btn, true, 'Memeriksa...', 'Masuk');
+  superPassword = pass;
+  const res = await api('loginSuperAdmin', {});
+  setBusy(btn, false, '', 'Masuk');
+  if (!res.sukses) { superPassword = ''; return showToast(res.pesan || 'Password salah.', false); }
+  
+  // Persistensi Sesi Super Admin
+  localStorage.setItem('ray_super_session', superPassword);
+  
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').classList.add('show');
+  muatDaftarKlien();
+  muatDaftarKoordinator();
+});
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-login').click();
+});
+document.getElementById('btn-logout').addEventListener('click', () => {
+  superPassword = '';
+  localStorage.removeItem('ray_super_session'); // Hapus sesi
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('screen-login').style.display = 'flex';
+  document.getElementById('login-password').value = '';
+});
+
+// ---------- DAFTAR KLIEN ----------
+async function muatDaftarKlien() {
+  const wrap = document.getElementById('daftar-klien');
+  wrap.innerHTML = '<div class="empty-state">Memuat...</div>';
+  const res = await api('daftarKlienSuperAdmin', {});
+  if (!res.sukses) { wrap.innerHTML = '<div class="empty-state">⚠️ ' + res.pesan + '</div>'; return; }
+  daftarKlien = res.daftar || [];
+  if (!daftarKlien.length) {
+    wrap.innerHTML = '<div class="empty-state"><div class="big">📋</div>Belum ada klien. Klik "+ Tambah Klien Baru".</div>';
+    return;
+  }
+  wrap.innerHTML = daftarKlien.map(k => `
+    <div class="klien-card ${k.status !== 'aktif' ? 'nonaktif' : ''}">
+      <div class="info">
+        <div class="nama">${escapeHtml(k.namaKlien)}<span class="badge ${k.status === 'aktif' ? 'aktif' : 'nonaktif'}">${k.status === 'aktif' ? 'AKTIF' : 'NONAKTIF'}</span></div>
+        <div class="kode">${escapeHtml(k.kodeKlien)}</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-outline btn-sm" data-act="log" data-id="${k.id}">Lihat Log</button>
+        <button class="btn btn-outline btn-sm" data-act="info" data-id="${k.id}">Info &amp; QR</button>
+        <button class="btn btn-outline btn-sm" data-act="kelola" data-kode="${k.kodeKlien}">Kelola</button>
+        <button class="btn btn-outline btn-sm" data-act="edit" data-id="${k.id}">Edit</button>
+        <button class="btn btn-outline btn-sm" data-act="reset" data-id="${k.id}">Reset Password</button>
+        <button class="btn ${k.status === 'aktif' ? 'btn-danger' : 'btn-green'} btn-sm" data-act="status" data-id="${k.id}" data-status="${k.status}">${k.status === 'aktif' ? 'Nonaktifkan' : 'Aktifkan'}</button>
+      </div>
+    </div>
+  `).join('');
+}
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+document.getElementById('daftar-klien').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const klien = daftarKlien.find(k => k.id === id);
+
+  if (btn.dataset.act === 'log') {
+    klienAktifSekarang = klien;
+    muatLogKlien(klien.id);
+    return;
+  }
+  if (btn.dataset.act === 'kelola') {
+    window.open(linkUntuk(btn.dataset.kode).admin, '_blank');
+    return;
+  }
+  if (btn.dataset.act === 'info') {
+    setBusy(btn, true, '...', 'Info & QR');
+    const res = await api('lihatPasswordKlienSuperAdmin', { klienId: id });
+    setBusy(btn, false, '', 'Info & QR');
+    if (!res.sukses) return showToast(res.pesan, false);
+    tampilkanInfoQr(klien, res.password);
+    return;
+  }
+  if (btn.dataset.act === 'edit') {
+    klienAktifSekarang = klien;
+    document.getElementById('edit-nama').value = klien.namaKlien;
+    document.getElementById('edit-logo').value = klien.logoUrl || '';
+    bukaModal('modal-edit');
+    return;
+  }
+  if (btn.dataset.act === 'reset') {
+    klienAktifSekarang = klien;
+    document.getElementById('reset-nama-klien').textContent = klien.namaKlien + ' (' + klien.kodeKlien + ')';
+    document.getElementById('reset-password').value = acakPassword();
+    bukaModal('modal-reset');
+    return;
+  }
+  if (btn.dataset.act === 'status') {
+    const statusBaru = btn.dataset.status === 'aktif' ? 'nonaktif' : 'aktif';
+    const label = statusBaru === 'aktif' ? 'mengaktifkan' : 'menonaktifkan';
+    if (!confirm(`Yakin ingin ${label} klien "${klien.namaKlien}"?`)) return;
+    setBusy(btn, true, '...', btn.textContent);
+    const res = await api('ubahStatusKlienSuperAdmin', { klienId: id, status: statusBaru });
+    setBusy(btn, false, '', btn.textContent);
+    showToast(res.pesan, res.sukses);
+    if (res.sukses) muatDaftarKlien();
+    return;
+  }
+});
+
+// ---------- LOG KLIEN ----------
+async function muatLogKlien(klienId) {
+  document.getElementById('log-nama-klien').textContent = klienAktifSekarang.namaKlien;
+  const container = document.getElementById('log-container');
+  container.innerHTML = '<div class="empty-state">Memuat log...</div>';
+  bukaModal('modal-log');
+
+  const res = await api('lihatLogSystemSuperAdmin', { klienId });
+  if (!res.sukses) {
+    container.innerHTML = '<div class="empty-state" style="color:var(--red);">⚠️ ' + res.pesan + '<br><br><em style="font-size:12px; color:var(--muted);">Catatan: Endpoint action "lihatLogSystemSuperAdmin" belum dikonfigurasi di Supabase Edge Function Anda. Anda perlu menambahkannya agar log dapat dibaca dari database.</em></div>';
+    return;
+  }
+  if (!res.log || !res.log.length) {
+    container.innerHTML = '<div class="empty-state">Belum ada log tercatat.</div>';
+    return;
+  }
+  container.innerHTML = res.log.map(l => `
+    <div style="padding:10px; border-bottom:1px solid var(--border);">
+      <div style="font-size:11px; color:var(--muted); font-family:var(--f-mono);">${l.waktu}</div>
+      <div style="font-weight:700; margin:4px 0; color:var(--navy);">${l.tipe} - User: ${l.user || 'System'}</div>
+      <div>${l.deskripsi}</div>
+    </div>
+  `).join('');
+}
+
+function tampilkanInfoQr(klien, password) {
+  document.getElementById('info-nama-klien').textContent = klien.namaKlien;
+  document.getElementById('info-kode-klien').textContent = 'Kode: ' + klien.kodeKlien;
+  const link = linkUntuk(klien.kodeKlien);
+  document.getElementById('info-link-absensi').value = link.absensi;
+  document.getElementById('info-link-admin').value = link.admin;
+  document.getElementById('info-link-admin-klien').value = link.adminKlien;
+  document.getElementById('info-password').value = password || '(tidak tersedia)';
+  const box = document.getElementById('qr-box');
+  box.innerHTML = '';
+  new QRCode(box, { text: link.absensi, width: 200, height: 200 });
+  bukaModal('modal-info');
+}
+document.querySelectorAll('[data-copy]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const el = document.getElementById(btn.dataset.copy);
+    el.select();
+    navigator.clipboard ? navigator.clipboard.writeText(el.value).then(() => showToast('Disalin ke clipboard.', true)) : document.execCommand('copy');
+  });
+});
+document.getElementById('btn-unduh-qr').addEventListener('click', () => {
+  const canvas = document.querySelector('#qr-box canvas');
+  const img = document.querySelector('#qr-box img');
+  const dataUrl = canvas ? canvas.toDataURL('image/png') : (img ? img.src : null);
+  if (!dataUrl) return showToast('QR belum siap.', false);
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = 'QR_Absensi_' + document.getElementById('info-kode-klien').textContent.replace('Kode: ', '') + '.png';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+});
+
+// ---------- TAMBAH KLIEN ----------
+document.getElementById('btn-buka-tambah').addEventListener('click', () => {
+  document.getElementById('tambah-nama').value = '';
+  document.getElementById('tambah-kode').value = '';
+  document.getElementById('tambah-password').value = acakPassword();
+  document.getElementById('tambah-logo').value = '';
+  bukaModal('modal-tambah');
+});
+document.getElementById('tambah-nama').addEventListener('input', (e) => {
+  document.getElementById('tambah-kode').value = slugKode(e.target.value);
+});
+document.getElementById('btn-acak-password').addEventListener('click', () => {
+  document.getElementById('tambah-password').value = acakPassword();
+});
+document.getElementById('btn-simpan-tambah').addEventListener('click', async () => {
+  const namaKlien = document.getElementById('tambah-nama').value.trim();
+  const kodeKlien = slugKode(document.getElementById('tambah-kode').value);
+  const passwordKlien = document.getElementById('tambah-password').value.trim();
+  const logoUrl = document.getElementById('tambah-logo').value.trim();
+  if (!namaKlien) return showToast('Nama klien wajib diisi.', false);
+  if (!kodeKlien) return showToast('Kode klien wajib diisi.', false);
+  if (passwordKlien.length < 6) return showToast('Password minimal 6 karakter.', false);
+  const btn = document.getElementById('btn-simpan-tambah');
+  setBusy(btn, true, 'Menyimpan...', 'Simpan & Buat Klien');
+  const res = await api('tambahKlienSuperAdmin', { namaKlien, kodeKlien, passwordKlien, logoUrl });
+  setBusy(btn, false, '', 'Simpan & Buat Klien');
+  if (!res.sukses) return showToast(res.pesan, false);
+  tutupModal('modal-tambah');
+  showToast(res.pesan, true);
+  await muatDaftarKlien();
+  tampilkanInfoQr({ namaKlien: res.klien.namaKlien, kodeKlien: res.klien.kodeKlien }, res.klien.passwordKlien);
+});
+
+// ---------- EDIT KLIEN ----------
+document.getElementById('btn-simpan-edit').addEventListener('click', async () => {
+  const namaKlien = document.getElementById('edit-nama').value.trim();
+  const logoUrl = document.getElementById('edit-logo').value.trim();
+  if (!namaKlien) return showToast('Nama klien wajib diisi.', false);
+  const btn = document.getElementById('btn-simpan-edit');
+  setBusy(btn, true, 'Menyimpan...', 'Simpan Perubahan');
+  const res = await api('editKlienSuperAdmin', { klienId: klienAktifSekarang.id, namaKlien, logoUrl });
+  setBusy(btn, false, '', 'Simpan Perubahan');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) { tutupModal('modal-edit'); muatDaftarKlien(); }
+});
+
+// ---------- RESET PASSWORD ----------
+document.getElementById('btn-acak-reset').addEventListener('click', () => {
+  document.getElementById('reset-password').value = acakPassword();
+});
+document.getElementById('btn-simpan-reset').addEventListener('click', async () => {
+  const passwordBaru = document.getElementById('reset-password').value.trim();
+  if (passwordBaru.length < 6) return showToast('Password minimal 6 karakter.', false);
+  const btn = document.getElementById('btn-simpan-reset');
+  setBusy(btn, true, 'Menyimpan...', 'Reset Password');
+  const res = await api('resetPasswordKlienSuperAdmin', { klienId: klienAktifSekarang.id, passwordBaru });
+  setBusy(btn, false, '', 'Reset Password');
+  if (!res.sukses) return showToast(res.pesan, false);
+  tutupModal('modal-reset');
+  showToast(res.pesan, true);
+  tampilkanInfoQr(klienAktifSekarang, passwordBaru);
+});
+
+// ---------- KOORDINATOR LAPANGAN ----------
+let daftarKoordinator = [];
+let koordinatorAktifSekarang = null;
+
+function linkKoordinator(kode) {
+  const base = location.href.replace(/super-admin\.html.*$/, '');
+  return base + 'admin.html?akses=koordinator&koor=' + encodeURIComponent(kode);
+}
+
+function renderLokasiChecklist(containerId, selectedIds) {
+  const box = document.getElementById(containerId);
+  const selected = new Set(selectedIds || []);
+  if (!daftarKlien.length) { box.innerHTML = '<span class="muted" style="font-size:13px;">Belum ada klien. Tambah klien dulu.</span>'; return; }
+  box.innerHTML = daftarKlien.map(k => `
+    <label style="display:flex; align-items:center; gap:8px; font-weight:400; font-size:13.5px; margin:6px 0; text-transform:none; color:var(--text);">
+      <input type="checkbox" value="${k.id}" ${selected.has(k.id) ? 'checked' : ''} style="width:auto;">
+      ${escapeHtml(k.namaKlien)} <span class="muted mono" style="font-size:11px;">${escapeHtml(k.kodeKlien)}</span>
+    </label>
+  `).join('');
+}
+function lokasiTerpilih(containerId) {
+  return Array.from(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(el => el.value);
+}
+
+async function muatDaftarKoordinator() {
+  const wrap = document.getElementById('daftar-koordinator');
+  wrap.innerHTML = '<div class="empty-state">Memuat...</div>';
+  const res = await api('daftarKoordinatorSuperAdmin', {});
+  if (!res.sukses) { wrap.innerHTML = '<div class="empty-state">⚠️ ' + res.pesan + '</div>'; return; }
+  daftarKoordinator = res.daftar || [];
+  if (!daftarKoordinator.length) {
+    wrap.innerHTML = '<div class="empty-state"><div class="big">🧭</div>Belum ada koordinator. Klik "+ Tambah Koordinator".</div>';
+    return;
+  }
+  wrap.innerHTML = daftarKoordinator.map(k => `
+    <div class="klien-card ${k.status !== 'aktif' ? 'nonaktif' : ''}">
+      <div class="info">
+        <div class="nama">${escapeHtml(k.nama)}<span class="badge ${k.status === 'aktif' ? 'aktif' : 'nonaktif'}">${k.status === 'aktif' ? 'AKTIF' : 'NONAKTIF'}</span></div>
+        <div class="kode">${escapeHtml(k.kodeKoordinator)} &middot; ${k.lokasi.length} lokasi: ${(k.lokasi.map(l => escapeHtml(l.namaKlien)).join(', ')) || '-'}</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-outline btn-sm" data-act="info" data-id="${k.id}">Info &amp; QR</button>
+        <button class="btn btn-outline btn-sm" data-act="edit" data-id="${k.id}">Edit</button>
+        <button class="btn ${k.status === 'aktif' ? 'btn-danger' : 'btn-green'} btn-sm" data-act="status" data-id="${k.id}" data-status="${k.status}">${k.status === 'aktif' ? 'Nonaktifkan' : 'Aktifkan'}</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('daftar-koordinator').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const k = daftarKoordinator.find(x => x.id === id);
+
+  if (btn.dataset.act === 'info') {
+    tampilkanInfoKoordinator(k);
+    return;
+  }
+  if (btn.dataset.act === 'edit') {
+    koordinatorAktifSekarang = k;
+    document.getElementById('editkoor-nama').value = k.nama;
+    renderLokasiChecklist('editkoor-lokasi-list', k.lokasi.map(l => l.id));
+    bukaModal('modal-edit-koordinator');
+    return;
+  }
+  if (btn.dataset.act === 'status') {
+    const statusBaru = btn.dataset.status === 'aktif' ? 'nonaktif' : 'aktif';
+    const label = statusBaru === 'aktif' ? 'mengaktifkan' : 'menonaktifkan';
+    if (!confirm(`Yakin ingin ${label} koordinator "${k.nama}"?`)) return;
+    setBusy(btn, true, '...', btn.textContent);
+    const res = await api('ubahStatusKoordinatorSuperAdmin', { koordinatorId: id, status: statusBaru });
+    setBusy(btn, false, '', btn.textContent);
+    showToast(res.pesan, res.sukses);
+    if (res.sukses) muatDaftarKoordinator();
+    return;
+  }
+});
+
+function tampilkanInfoKoordinator(k) {
+  document.getElementById('infokoor-nama').textContent = k.nama;
+  document.getElementById('infokoor-kode').textContent = 'Kode: ' + k.kodeKoordinator;
+  const link = linkKoordinator(k.kodeKoordinator);
+  document.getElementById('infokoor-link').value = link;
+  const box = document.getElementById('qrkoor-box');
+  box.innerHTML = '';
+  new QRCode(box, { text: link, width: 200, height: 200 });
+  bukaModal('modal-info-koordinator');
+}
+document.getElementById('btn-unduh-qr-koor').addEventListener('click', () => {
+  const canvas = document.querySelector('#qrkoor-box canvas');
+  const img = document.querySelector('#qrkoor-box img');
+  const dataUrl = canvas ? canvas.toDataURL('image/png') : (img ? img.src : null);
+  if (!dataUrl) return showToast('QR belum siap.', false);
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = 'QR_Koordinator_' + document.getElementById('infokoor-kode').textContent.replace('Kode: ', '') + '.png';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+});
+
+// ---------- TAMBAH KOORDINATOR ----------
+document.getElementById('btn-buka-tambah-koordinator').addEventListener('click', () => {
+  document.getElementById('tambahkoor-nama').value = '';
+  document.getElementById('tambahkoor-kode').value = '';
+  renderLokasiChecklist('tambahkoor-lokasi-list', []);
+  bukaModal('modal-tambah-koordinator');
+});
+document.getElementById('tambahkoor-nama').addEventListener('input', (e) => {
+  document.getElementById('tambahkoor-kode').value = slugKode(e.target.value);
+});
+document.getElementById('btn-simpan-tambah-koordinator').addEventListener('click', async () => {
+  const namaKoordinator = document.getElementById('tambahkoor-nama').value.trim();
+  const kodeKoordinator = slugKode(document.getElementById('tambahkoor-kode').value);
+  const lokasiIds = lokasiTerpilih('tambahkoor-lokasi-list');
+  if (!namaKoordinator) return showToast('Nama koordinator wajib diisi.', false);
+  if (!kodeKoordinator) return showToast('Kode koordinator wajib diisi.', false);
+  if (!lokasiIds.length) return showToast('Pilih minimal 1 lokasi.', false);
+  const btn = document.getElementById('btn-simpan-tambah-koordinator');
+  setBusy(btn, true, 'Menyimpan...', 'Simpan & Buat Koordinator');
+  const res = await api('tambahKoordinatorSuperAdmin', { namaKoordinator, kodeKoordinator, lokasiIds });
+  setBusy(btn, false, '', 'Simpan & Buat Koordinator');
+  if (!res.sukses) return showToast(res.pesan, false);
+  tutupModal('modal-tambah-koordinator');
+  showToast(res.pesan, true);
+  await muatDaftarKoordinator();
+  tampilkanInfoKoordinator({ nama: res.koordinator.namaKoordinator, kodeKoordinator: res.koordinator.kodeKoordinator });
+});
+
+// ---------- EDIT KOORDINATOR ----------
+document.getElementById('btn-simpan-edit-koordinator').addEventListener('click', async () => {
+  const namaKoordinator = document.getElementById('editkoor-nama').value.trim();
+  const lokasiIds = lokasiTerpilih('editkoor-lokasi-list');
+  if (!namaKoordinator) return showToast('Nama koordinator wajib diisi.', false);
+  if (!lokasiIds.length) return showToast('Pilih minimal 1 lokasi.', false);
+  const btn = document.getElementById('btn-simpan-edit-koordinator');
+  setBusy(btn, true, 'Menyimpan...', 'Simpan Perubahan');
+  const res = await api('editKoordinatorSuperAdmin', { koordinatorId: koordinatorAktifSekarang.id, namaKoordinator, lokasiIds });
+  setBusy(btn, false, '', 'Simpan Perubahan');
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) { tutupModal('modal-edit-koordinator'); muatDaftarKoordinator(); }
+});
+
+// INIT
+const savedSuper = localStorage.getItem('ray_super_session');
+if (savedSuper) {
+  superPassword = savedSuper;
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').classList.add('show');
+  muatDaftarKlien();
+  muatDaftarKoordinator();
+}
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+}
+</script>
+</body>
+</html>
