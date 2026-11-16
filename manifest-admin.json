@@ -1,8 +1,8 @@
 {
   "id": "/admin.html",
-  "name": "Absensi CAP — Admin",
-  "short_name": "CAP Admin",
-  "description": "Aplikasi admin klien untuk Absensi CAP",
+  "name": "CAKRA APP — Admin",
+  "short_name": "CAKRA APP Admin",
+  "description": "Aplikasi admin klien untuk CAKRA APP",
   "start_url": "./admin.html",
   "scope": "./",
   "display": "standalone",
