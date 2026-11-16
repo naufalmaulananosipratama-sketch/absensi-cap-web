@@ -1,0 +1,3334 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Absensi CAP — Admin</title>
+<link rel="manifest" href="manifest-admin.json">
+<script>
+// iOS membaca start_url dari manifest.json (bukan URL yang sedang dibuka) saat
+// "Tambahkan ke Layar Utama" ditekan. Manifest statis tidak punya ?klien=...,
+// jadi begitu dibuka dari ikon, link kebaca tidak lengkap -> muncul "link tidak valid".
+// Di sini manifest dibuat ulang sebagai Blob yang menyisipkan query string saat ini
+// ke dalam start_url, supaya ikon yang terpasang tetap membawa ?klien=... miliknya.
+(function () {
+  try {
+    var qs = location.search;
+    if (!qs) return;
+    var manifest = {
+      id: './admin.html' + qs,
+      name: 'Absensi CAP — Admin',
+      short_name: 'CAP Admin',
+      description: 'Aplikasi admin klien untuk Absensi CAP',
+      start_url: './admin.html' + qs,
+      scope: './',
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#eef1f6',
+      theme_color: '#9b1c1c',
+      lang: 'id',
+      icons: [
+        { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+        { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ]
+    };
+    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    var link = document.querySelector('link[rel="manifest"]');
+    if (link) link.setAttribute('href', URL.createObjectURL(blob));
+  } catch (e) {}
+})();
+</script>
+<meta name="theme-color" content="#9b1c1c">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CAP Admin">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains&#43;Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- xlsx-js-style: fork SheetJS 0.18.5 yang BISA menulis warna/style sel (versi
+     cdnjs biasa tidak bisa, cuma baca) - API sama persis, dipakai juga oleh
+     rekap Excel flat klien lain di bawah, jadi aman diganti total. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#eef1f6; --card:#ffffff; --border:#e3e7ee;
+    --navy:#9b1c1c; --navy-dark:#6b1212; --navy-soft:#f7ecec;
+    --tan:#e4d9c4; --tan-text:#8a7a5c;
+    --text:#1f2937; --muted:#7c8798;
+    --green-bg:#e7f7ee; --green-text:#1a9a56; --green:#1a9a56;
+    --red-bg:#fdecea; --red-text:#d5453a; --red:#d5453a;
+    --radius:14px; --radius-sm:10px;
+    --shadow:0 1px 2px rgba(16,30,54,.04), 0 4px 14px rgba(16,30,54,.06);
+    --f-body:'Inter',sans-serif; --f-mono:'JetBrains Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:var(--f-body); min-height:100vh;}
+  h1,h2,h3,.display{font-weight:700; margin:0;}
+  .mono{font-family:var(--f-mono);}
+  .muted{color:var(--muted);}
+  .hidden{display:none !important;}
+  button,select,input{font-family:var(--f-body);}
+
+  .center-screen{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;}
+  .login-card{width:100%; max-width:380px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:26px; box-shadow:var(--shadow);}
+  .login-card .brand{font-size:12.5px; letter-spacing:1.5px; color:var(--muted); text-align:center; font-weight:700;}
+  .login-card h1{font-size:26px; text-align:center; margin-top:4px; margin-bottom:4px; color:var(--navy);}
+
+  label{display:block; font-size:12.5px; color:var(--muted); font-weight:600; margin:12px 0 6px;}
+  label:first-child{margin-top:0;}
+  input[type=password],input[type=text],input[type=number],select{
+    width:100%; background:#fbfcfe; border:1px solid var(--border); color:var(--text);
+    padding:10px 11px; border-radius:var(--radius-sm); font-size:14px;
+  }
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--navy); outline-offset:1px;}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:10px 16px; border-radius:var(--radius-sm); border:1px solid transparent;
+    font-size:14.5px; font-weight:700; cursor:pointer; margin-top:12px; transition:opacity .15s, transform .1s;
+  }
+  .btn:active{transform:scale(.98);}
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
+  .btn-navy,.btn-primary{background:var(--navy); color:#fff; width:100%;}
+  .btn-green{background:var(--green); color:#fff;}
+  .btn-outline{background:#fff; border-color:var(--border); color:var(--navy);}
+  .btn-danger{background:#fff; border-color:var(--red); color:var(--red);}
+  .btn-sm{padding:6px 12px; font-size:12.5px; margin-top:0; width:auto;}
+
+   
+  .app{display:none;}
+  .app.show{display:block;}
+  header.top{
+    background:var(--card); border-bottom:1px solid var(--border);
+    padding:14px 20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+    position:sticky; top:0; z-index:10;
+  }
+  header.top .brand-block{display:flex; align-items:center; gap:10px;}
+  header.top .brand-block .display{font-size:19px; color:var(--navy);}
+  .role-tag{
+    font-family:var(--f-mono); font-size:11px; padding:2px 8px; border-radius:99px; border:1px solid var(--border); color:var(--muted);
+  }
+  .role-tag.internal{border-color:var(--navy); color:var(--navy); background:var(--navy-soft);}
+  .filter-group{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .filter-group select,.filter-group input{width:auto; padding:7px 9px; font-size:13px;}
+  .filter-group label{margin:0; white-space:nowrap;}
+
+  nav.tabs{
+    display:flex; gap:2px; overflow-x:auto; background:var(--card); border-bottom:1px solid var(--border);
+    padding:0 20px;
+  }
+  nav.tabs button{
+    background:none; border:none; color:var(--muted); padding:12px 16px;
+    font-size:14.5px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap;
+  }
+  nav.tabs button.active{color:var(--navy); border-bottom-color:var(--navy);}
+
+  main{max-width:1100px; margin:0 auto; padding:22px 20px 60px;}
+  .tabpanel{display:none;}
+  .tabpanel.active{display:block;}
+
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:20px;}
+  .stat-tile{background:var(--card); border:1px solid var(--border); border-left:3px solid var(--navy); border-radius:var(--radius-sm); padding:14px; box-shadow:var(--shadow);}
+  .stat-tile .num{font-size:28px; line-height:1; font-weight:700; color:var(--navy);}
+  .stat-tile .lb{font-size:12px; color:var(--muted); margin-top:4px;}
+
+  .panel{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:16px; box-shadow:var(--shadow);}
+  .section-title{font-size:15.5px; font-weight:700; margin-bottom:12px; color:var(--navy);}
+
+  .harian-bar{display:flex; align-items:center; justify-content:center; gap:10px;}
+  .harian-arrow{
+    width:34px; height:34px; flex:none; display:inline-flex; align-items:center; justify-content:center;
+    background:var(--navy-soft); border:1px solid var(--border); color:var(--navy); border-radius:var(--radius-sm);
+    font-size:16px; font-weight:700; cursor:pointer;
+  }
+  .harian-arrow:active{transform:scale(.96);}
+  .harian-date{width:auto; max-width:170px;}
+  .harian-info{font-size:12px; margin-top:10px; text-align:center;}
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th,td{text-align:left; padding:9px 8px; border-bottom:1px solid var(--border); white-space:nowrap;}
+  th{color:var(--muted); font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.3px;}
+  th .muted{text-transform:none; letter-spacing:0; font-size:11px;}
+
+  .kpi-badge{display:inline-block; padding:3px 9px; border-radius:99px; font-weight:700; font-size:12.5px;}
+  .kpi-badge.ok{background:var(--green-bg); color:var(--green-text);}
+  .kpi-badge.bad{background:var(--red-bg); color:var(--red-text);}
+  .nama-nonaktif{color:var(--red-text); font-weight:600; white-space:nowrap;}
+  tr.baris-nonaktif{background:var(--red-bg);}
+  td.num,th.num{font-family:var(--f-mono); text-align:right;}
+  .table-scroll{overflow-x:auto;}
+
+  .chart{display:flex; align-items:flex-end; gap:14px; height:160px; padding:10px 4px 0;}
+  .chart .bar-group{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;}
+  .chart .bars{display:flex; align-items:flex-end; gap:3px; height:130px;}
+  .chart .bars .b{width:9px; border-radius:2px 2px 0 0;}
+  .chart .bars .b.hadir{background:var(--green);}
+  .chart .bars .b.telat{background:var(--red);}
+  .chart .bars .b.ijin{background:var(--tan-text);}
+  .chart .lb{font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--f-mono);}
+  .legend{display:flex; gap:16px; font-size:12px; color:var(--muted); margin-top:6px;}
+  .legend span{display:inline-flex; align-items:center; gap:5px;}
+  .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;}
+
+  .subtabs{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
+  .subtabs button{background:var(--navy-soft); border:1px solid var(--border); color:var(--muted); padding:7px 14px; border-radius:99px; cursor:pointer; font-size:13px; font-weight:600;}
+  .subtabs button.active{color:var(--navy); border-color:var(--navy); background:#fff;}
+
+  /* Area scroll khusus Matriks Kehadiran (horizontal + vertikal jadi satu) -
+     SENGAJA bukan .table-scroll biasa (overflow-x:auto saja): kalau cuma
+     overflow-x yang di-set, browser otomatis mempromosikan overflow-y jadi
+     auto juga (aturan CSS overflow computed-value), dan div itu sendiri yang
+     jadi "nearest scrolling ancestor" buat position:sticky di thead, padahal
+     dia sendiri tidak pernah ter-scroll (tinggi ngikut konten) - akibatnya
+     header TIDAK PERNAH floating walau thead sudah position:sticky. Dengan
+     max-height+overflow:auto di sini, scroll vertikal beneran terjadi DI
+     DALAM kotak ini, jadi sticky top:0 thead-nya baru benar-benar nempel.
+     Kalau mau header mentok ke halaman bukan ke kotak ini, overflow-x
+     tidak bisa dipisah dari overflow-y oleh CSS murni - butuh markup beda. */
+  .matriks-scroll{max-height:65vh; overflow:auto; border:1px solid var(--border); border-radius:var(--radius-sm);}
+  .tabel-matriks-absensi{table-layout:fixed;}
+  .tabel-matriks-absensi th,.tabel-matriks-absensi td{white-space:nowrap; text-align:center; padding:6px 6px; overflow:hidden; text-overflow:ellipsis;}
+  .tabel-matriks-absensi thead tr:last-child th{font-size:10.5px; color:var(--muted); text-transform:none;}
+  .tabel-matriks-absensi th:first-child,.tabel-matriks-absensi td:first-child{text-align:left; position:sticky; left:0; background:var(--card); z-index:2;}
+  .tabel-matriks-absensi th:nth-child(2),.tabel-matriks-absensi td:nth-child(2){text-align:left; position:sticky; left:180px; background:var(--card); z-index:2; box-shadow:2px 0 4px -2px rgba(16,30,54,.15);}
+  /* Header (NAMA/BAGIAN/tanggal/Masuk-Keluar) tetap kelihatan saat scroll ke
+     bawah DI DALAM .matriks-scroll - top:0 nempel ke tepi atas kotak scroll
+     itu sendiri (baris 2 header di-geser JS sebesar tinggi baris 1). */
+  .tabel-matriks-absensi thead th{position:sticky; top:0; background:var(--card); z-index:4;}
+  .tabel-matriks-absensi thead th:first-child,.tabel-matriks-absensi thead th:nth-child(2){z-index:5;}
+  /* Garis pemisah lebih tegas antar tanggal (di kolom Keluar / sisi kanan tiap pasang Masuk-Keluar) */
+  .tabel-matriks-absensi thead tr:first-child th:nth-child(n+3){border-right:2px solid #b9c2d1;}
+  .tabel-matriks-absensi thead tr:last-child th:nth-child(2n){border-right:2px solid #b9c2d1;}
+  .tabel-matriks-absensi tbody td:nth-child(2n):not(:nth-child(2)){border-right:2px solid #b9c2d1;}
+  .tabel-matriks-absensi td.sel-alpa{background:var(--red-bg); color:var(--red-text); font-size:11px;}
+  .tabel-matriks-absensi td.sel-ijin{background:var(--tan); color:var(--tan-text); font-size:11px;}
+
+  .approval-item{background:var(--card); border:1px solid var(--border); border-left:3px solid var(--navy); border-radius:var(--radius-sm); padding:14px; margin-bottom:10px; box-shadow:var(--shadow);}
+  .approval-item .row{display:flex; justify-content:space-between; font-size:13px; padding:3px 0; gap:10px;}
+  .approval-item .row .k{color:var(--muted);}
+  .approval-item .actions{display:flex; gap:8px; margin-top:10px;}
+  .approval-item a{color:var(--navy); font-size:12px; font-weight:600;}
+
+  .empty-state{text-align:center; padding:40px 16px; color:var(--muted);}
+  .empty-state .big{font-size:32px; margin-bottom:6px;}
+
+  .foto-thumb{width:44px; height:44px; object-fit:cover; border-radius:8px; border:1px solid var(--border); display:block;}
+  .kd-foto-row{display:flex; align-items:center; gap:10px;}
+  .kd-foto-row .foto-thumb{width:52px; height:52px;}
+
+  .chat-log{display:flex; flex-direction:column; gap:12px; margin-bottom:14px; max-height:60vh; overflow-y:auto; padding-right:4px;}
+  .chat-msg{max-width:80%; padding:10px 13px; border-radius:var(--radius-sm); font-size:14px; line-height:1.5; white-space:pre-wrap;}
+  .chat-msg.user{align-self:flex-end; background:var(--navy); color:#fff;}
+  .chat-msg.ai{align-self:flex-start; background:var(--navy-soft); border:1px solid var(--border); max-width:92%;}
+  .chat-msg.ai .chat-table-wrap{overflow-x:auto; margin:6px 0; white-space:normal;}
+  .chat-table{border-collapse:collapse; width:100%; font-size:13px;}
+  .chat-table th, .chat-table td{border:1px solid var(--border); padding:5px 8px; text-align:left; white-space:nowrap;}
+  .chat-table th{background:rgba(0,0,0,.04); font-weight:600;}
+  .chat-input-row{display:flex; gap:8px;}
+  .chat-input-row textarea{
+    flex:1; background:#fbfcfe; border:1px solid var(--border); color:var(--text); border-radius:var(--radius-sm);
+    padding:10px 12px; font-size:14px; font-family:var(--f-body); resize:none; min-height:44px;
+  }
+
+  .toast{
+    position:fixed; right:20px; bottom:20px; max-width:340px; background:var(--card); border:1px solid var(--border);
+    border-radius:var(--radius-sm); padding:12px 14px; font-size:13px; z-index:50; box-shadow:0 6px 20px rgba(16,30,54,.18);
+  }
+  .toast.ok{border-left:3px solid var(--green);}
+  .toast.err{border-left:3px solid var(--red);}
+
+   
+  .kd-form-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .kd-form-row .btn{flex:none;}
+  .action-cell{display:flex; gap:6px; flex-wrap:nowrap;}
+  .action-cell .btn{width:auto;}
+  tr.group-sep td{background:var(--navy-soft); color:var(--navy); font-weight:700; padding:8px 12px; text-align:left; border-top:2px solid var(--navy); border-bottom:2px solid var(--navy);}
+
+   
+  .qr-modal{
+    position:fixed; inset:0; background:rgba(15,39,64,.55); display:flex; align-items:center; justify-content:center;
+    z-index:60; padding:20px;
+  }
+  .qr-modal-inner{background:var(--card); border-radius:var(--radius); padding:22px; max-width:320px; width:100%; text-align:center; box-shadow:var(--shadow);}
+  #qr-canvas-box,#qrweb-box{display:flex; justify-content:center; padding:10px; background:#fff; border-radius:var(--radius-sm);}
+
+
+  .slip-cols{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;}
+  .slip-col{flex:1 1 380px; min-width:300px;}
+  .slip-income-cols{display:flex; gap:12px; flex-wrap:wrap;}
+  .slip-income-cols>div{flex:1 1 220px; min-width:200px;}
+  .slip-item-row{display:flex; gap:6px; margin-bottom:6px;}
+  .slip-item-row input{margin:0;}
+  .slip-item-row input:first-child{flex:1 1 55%;}
+  .slip-item-row input:nth-child(2){flex:1 1 40%;}
+  .slip-preview{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:24px; box-shadow:var(--shadow); position:sticky; top:16px;}
+  .slip-sheet-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:18px;}
+  .slip-sheet-brand{display:flex; align-items:center; gap:10px;}
+  .slip-sheet-brand img{width:36px; height:36px; object-fit:contain; border-radius:6px;}
+  .slip-sheet-nama-pt{font-weight:700; color:var(--navy); font-size:13.5px;}
+  .slip-sheet-bulan{font-weight:700; color:var(--navy); font-size:18px; margin-top:2px;}
+  .slip-sheet-section-title{font-weight:700; color:var(--text); font-size:14px; margin:16px 0 10px;}
+  .slip-sheet-info-cols{display:flex; gap:24px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:16px; margin-bottom:4px;}
+  .slip-sheet-info-cols>div{flex:1 1 200px;}
+  .slip-info-row{display:flex; font-size:13px; padding:3px 0;}
+  .slip-info-row .lbl{width:100px; flex-shrink:0; color:var(--muted);}
+  .slip-info-row .colon{width:12px; flex-shrink:0; color:var(--muted);}
+  .slip-info-row .val{font-weight:600; color:var(--text);}
+  .slip-sheet-grid2{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:6px;}
+  .slip-sheet-grid2 table{flex:1 1 220px; width:100%; border-collapse:collapse; font-size:13px;}
+  .slip-sheet-grid2 table th{background:var(--navy-soft); padding:7px 6px; text-align:left; font-weight:700; color:var(--text);}
+  .slip-sheet-grid2 table th.num{text-align:right;}
+  .slip-sheet-grid2 table td{padding:7px 6px; border-bottom:1px solid var(--border);}
+  .slip-sheet-grid2 table td.num{text-align:right;}
+  .slip-total-row td{font-weight:700; background:var(--navy-soft); border-bottom:none;}
+  .slip-sheet-thp{display:flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; margin:18px 0;}
+  .slip-sheet-thp-left{flex:1; padding:12px 16px;}
+  .slip-sheet-thp-right{width:150px; flex-shrink:0; background:#e3f2e6; display:flex; align-items:center; justify-content:flex-end; padding:0 16px; font-weight:700; font-size:17px; color:var(--text);}
+  .slip-sheet-thp-label{font-weight:700; color:var(--text);}
+  .slip-sheet-bottom{display:flex; gap:16px; flex-wrap:wrap; margin-top:20px;}
+  .slip-sheet-bottom>div{flex:1 1 150px;}
+  .slip-sheet-ttd-space{height:40px;}
+  .slip-sheet-ttd-nama{font-weight:700;}
+  .slip-sheet-footer{display:flex; align-items:center; gap:8px; margin-top:20px; padding-top:12px; border-top:1px solid var(--border); font-size:10.5px; text-align:left; color:var(--muted);}
+  .slip-sheet-footer img{width:20px; height:20px; object-fit:contain; border-radius:5px; flex-shrink:0;}
+  .slip-sheet-footer-brand{color:var(--navy); font-weight:700;}
+  @media (max-width:560px){ .slip-sheet-thp-right{width:120px;} }
+  @media print{
+    body *{visibility:hidden;}
+    #slip-preview-cetak,#slip-preview-cetak *{visibility:visible;}
+    #slip-preview-cetak{position:absolute; left:0; top:0; width:100%; box-shadow:none; border:none;}
+  }
+</style>
+</head>
+<body>
+
+<section id="screen-klien-invalid" class="center-screen hidden">
+  <div class="login-card" style="text-align:center;">
+    <div style="font-size:40px; margin-bottom:8px;">🔒</div>
+    <h1 style="font-size:19px;">Link Admin Tidak Valid</h1>
+    <p class="muted" id="klien-invalid-pesan">Link ini tidak valid atau klien sudah tidak aktif. Hubungi Super Admin untuk link yang benar.</p>
+  </div>
+</section>
+
+<section id="screen-login" class="center-screen">
+  <div class="login-card">
+    <div class="brand">PT CAKRA ADIDAYA PERKASA</div>
+    <h1 id="login-judul">Panel Admin</h1>
+    <div class="muted" id="subtitle-klien" style="text-align:center; margin:-2px 0 14px; font-size:13px;"></div>
+    <label id="label-kode-koordinator" class="hidden">Kode Koordinator</label>
+    <input type="text" id="login-kode-koordinator" class="hidden" placeholder="Kode koordinator">
+    <label>Password Admin</label>
+    <input type="password" id="login-password" placeholder="Masukkan password">
+    <button class="btn btn-primary" id="btn-login-admin">Masuk</button>
+  </div>
+</section>
+
+<section id="screen-pilih-lokasi" class="center-screen hidden">
+  <div class="login-card" style="max-width:420px;">
+    <div class="brand">PT CAKRA ADIDAYA PERKASA</div>
+    <h1 style="font-size:19px;">Pilih Lokasi</h1>
+    <p class="muted" style="text-align:center; margin:-2px 0 14px; font-size:13px;" id="subtitle-koordinator"></p>
+    <label>Lokasi Tanggung Jawab Anda</label>
+    <select id="pilih-lokasi-select"></select>
+    <button class="btn btn-primary" id="btn-masuk-lokasi">Masuk</button>
+    <button class="btn btn-outline" id="btn-ganti-akun-koordinator" style="width:100%;">Ganti Akun</button>
+  </div>
+</section>
+
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand-block">
+      <img src="icon-192.png" alt="logo" style="width:30px; height:30px; border-radius:7px;">
+      <div class="display" id="brand-header">Absensi CAP</div>
+      <span class="role-tag" id="role-tag">-</span>
+    </div>
+    <div class="filter-group">
+      <label id="label-lokasi-aktif" class="hidden">Lokasi</label>
+      <select id="lokasi-aktif-select" class="hidden"></select>
+      <label>Bulan</label>
+      <select id="filter-bulan"></select>
+      <label>Tahun</label>
+      <input type="number" id="filter-tahun" style="width:80px;">
+      <button class="btn btn-outline btn-sm" id="btn-terapkan-filter">Terapkan</button>
+      <button class="btn btn-danger btn-sm" id="btn-logout-admin">Keluar</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="absensi" class="active">Dashboard Absensi</button>
+    <button data-tab="patroli">Dashboard Patroli</button>
+    <button data-tab="kejadian" id="tab-btn-kejadian" class="hidden">Laporan Kejadian</button>
+    <button data-tab="cleaning">Dashboard Cleaning</button>
+    <button data-tab="penilaian">Penilaian &amp; Evaluasi</button>
+    <button data-tab="kelola" id="tab-btn-kelola" class="hidden">Kelola Data</button>
+    <button data-tab="persetujuan" id="tab-btn-persetujuan" class="hidden">Persetujuan</button>
+    <button data-tab="ai">Tanya AI</button>
+    <button data-tab="rekap" id="tab-btn-rekap" class="hidden">Rekap Excel</button>
+  </nav>
+
+  <main>
+    
+    <section class="tabpanel active" id="tab-absensi">
+      <div class="stat-grid" id="absensi-stats"></div>
+
+      <div class="subtabs" data-target="grp-absensi">
+        <button data-sub="ringkasan" class="active">Ringkasan</button>
+        <button data-sub="matriks">Matriks Kehadiran</button>
+      </div>
+      <div id="grp-absensi">
+      <div data-sub-panel="ringkasan" id="sub-absensi-ringkasan">
+      <div class="panel">
+        <div class="section-title">Ringkasan Harian</div>
+        <div class="harian-bar">
+          <button class="harian-arrow" id="absensi-harian-prev" aria-label="Hari sebelumnya">&#8592;</button>
+          <input type="date" id="absensi-harian-tanggal" class="harian-date">
+          <button class="harian-arrow" id="absensi-harian-next" aria-label="Hari berikutnya">&#8594;</button>
+        </div>
+        <div class="stat-grid" id="absensi-harian-stats" style="margin-top:14px; margin-bottom:0;"></div>
+        <div class="muted harian-info" id="absensi-harian-info"></div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Tren 6 Bulan Terakhir</div>
+        <div class="chart" id="absensi-chart"></div>
+        <div class="legend">
+          <span><i style="background:var(--green)"></i>Hadir</span>
+          <span><i style="background:var(--red)"></i>Telat</span>
+          <span><i style="background:var(--tan-text)"></i>Ijin</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Per Karyawan</div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Nama</th><th>Bagian</th><th class="num">Hadir</th><th class="num">Telat</th><th class="num">Ijin</th><th class="num">% Hadir</th></tr></thead>
+            <tbody id="absensi-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Riwayat Absensi (Detail)</div>
+        <p class="muted" style="font-size:12.5px; margin-top:-6px;">Clock in &amp; clock out tiap karyawan digabung satu baris per bulan &amp; tahun yang difilter di atas, lengkap dengan jarak ke lokasi kerja dan foto bukti.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Tanggal</th><th>Nama</th><th>Bagian</th><th>Jam Masuk</th><th>Telat</th><th>Lokasi &amp; Jarak Masuk</th><th>Akurasi GPS Masuk</th><th>Foto Masuk</th><th>Jam Keluar</th><th>Lokasi &amp; Jarak Keluar</th><th>Akurasi GPS Keluar</th><th>Foto Keluar</th></tr></thead>
+            <tbody id="absensi-detail-table"></tbody>
+          </table>
+        </div>
+      </div>
+      </div>
+      <div data-sub-panel="matriks" id="sub-absensi-matriks" class="hidden">
+      <div class="panel">
+        <div class="section-title">Matriks Kehadiran Harian</div>
+        <p class="muted" style="font-size:12.5px; margin-top:-6px;">Satu baris per karyawan (diurutkan Security, Cleaning Service, Administrasi, Pengemudi, lalu bagian lain secara abjad), satu kolom per tanggal bulan &amp; tahun yang difilter di atas, dibagi Jam Masuk &amp; Jam Keluar supaya pengawasan lebih mudah.</p>
+        <div class="legend">
+          <span><i style="background:var(--red-bg); box-shadow:inset 0 0 0 1px var(--red-text);"></i>Alpa (tidak absen &amp; tidak ijin)</span>
+          <span><i style="background:var(--tan)"></i>Ijin Disetujui</span>
+        </div>
+        <div class="matriks-scroll">
+          <table class="tabel-matriks-absensi">
+            <colgroup id="absensi-matriks-colgroup"></colgroup>
+            <thead id="absensi-matriks-thead"></thead>
+            <tbody id="absensi-matriks-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      </div>
+      </div>
+    </section>
+
+    
+    <section class="tabpanel" id="tab-patroli">
+      <div class="stat-grid" id="patroli-stats"></div>
+      <div class="panel">
+        <div class="section-title">Ringkasan Harian</div>
+        <div class="harian-bar">
+          <button class="harian-arrow" id="patroli-harian-prev" aria-label="Hari sebelumnya">&#8592;</button>
+          <input type="date" id="patroli-harian-tanggal" class="harian-date">
+          <button class="harian-arrow" id="patroli-harian-next" aria-label="Hari berikutnya">&#8594;</button>
+        </div>
+        <div class="stat-grid" id="patroli-harian-stats" style="margin-top:14px; margin-bottom:0;"></div>
+        <div class="muted harian-info" id="patroli-harian-info"></div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Per Staf Security</div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Nama</th><th class="num">Lapor Bulan Ini</th><th class="num">Rata-rata/Hari</th><th>Terakhir Lapor</th></tr></thead>
+            <tbody id="patroli-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Riwayat Patroli (Detail)</div>
+        <p class="muted" style="font-size:12.5px; margin-top:-6px;">Setiap laporan patroli pada bulan &amp; tahun yang difilter di atas, lengkap dengan titik pos, akurasi GPS, catatan, dan foto bukti.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Tanggal</th><th>Nama</th><th>Titik Pos</th><th>Jam</th><th>Akurasi GPS</th><th>Catatan</th><th>Foto</th></tr></thead>
+            <tbody id="patroli-detail-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="tabpanel" id="tab-kejadian">
+      <div class="stat-grid" id="kejadian-stats"></div>
+      <div class="panel">
+        <div class="section-title">Riwayat Laporan Kejadian</div>
+        <p class="muted" style="font-size:12.5px; margin-top:-6px;">Laporan berjenjang Anggota → Danru → Koordinator pada bulan &amp; tahun yang difilter di atas. Klik "Cetak PDF" untuk lihat/unduh detail lengkap satu laporan.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Nomor</th><th>Tanggal</th><th>Lokasi</th><th>Jenis Laporan</th><th>Level</th><th>Status</th><th>Foto</th><th>Aksi</th></tr></thead>
+            <tbody id="kejadian-detail-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    
+    <section class="tabpanel" id="tab-cleaning">
+      <div class="stat-grid" id="cleaning-stats"></div>
+      <div class="panel">
+        <div class="section-title">Per Staf Cleaning Service</div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Nama</th><th class="num">Lapor Bulan Ini</th><th class="num">Rata-rata/Hari</th><th>Terakhir Lapor</th></tr></thead>
+            <tbody id="cleaning-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Riwayat Kegiatan Cleaning Service (Detail)</div>
+        <p class="muted" style="font-size:12.5px; margin-top:-6px;">Setiap laporan kegiatan cleaning pada bulan &amp; tahun yang difilter di atas, lengkap dengan area/tugas, akurasi GPS, catatan, dan foto sebelum/sesudah &mdash; sama seperti Riwayat Patroli Security.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Tanggal</th><th>Nama</th><th>Tugas</th><th>Area</th><th>Jam</th><th>Akurasi GPS</th><th>Catatan</th><th>Foto Sebelum</th><th>Foto Sesudah</th></tr></thead>
+            <tbody id="cleaning-detail-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="tabpanel" id="tab-penilaian">
+      <div class="panel">
+        <div class="section-title">Penilaian &amp; Evaluasi Kinerja</div>
+        <p class="muted" style="font-size:13px; margin-top:-6px;">Pilih bagian kerja untuk melihat KPI staf pada bulan &amp; tahun yang difilter di atas, atau isi filter tanggal di bawah untuk rentang kustom.</p>
+        <label>Bagian Kerja</label>
+        <select id="penilaian-bagian" style="max-width:260px;">
+          <option value="Security">Security</option>
+          <option value="Cleaning Service">Cleaning Service</option>
+          <option value="Administrasi">Administrasi</option>
+          <option value="Pengemudi">Pengemudi</option>
+          <option value="Tenaga Lapangan">Tenaga Lapangan</option>
+          <option value="Tenaga Produksi">Tenaga Produksi</option>
+          <option value="Tenaga Operator">Tenaga Operator</option>
+          <option value="Lainnya">Lainnya</option>
+        </select>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-top:14px;">
+          <div>
+            <label>Dari Tanggal</label>
+            <input type="date" id="penilaian-tgl-awal" style="width:auto;">
+          </div>
+          <div>
+            <label>Sampai Tanggal</label>
+            <input type="date" id="penilaian-tgl-akhir" style="width:auto;">
+          </div>
+          <button type="button" class="btn btn-navy" style="width:auto;" onclick="muatPenilaian()">Terapkan Filter Tanggal</button>
+          <button type="button" class="btn btn-outline" style="width:auto;" onclick="document.getElementById('penilaian-tgl-awal').value=''; document.getElementById('penilaian-tgl-akhir').value=''; muatPenilaian();">Reset ke Bulan/Tahun</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin-top:8px; margin-bottom:0;">Isi kedua tanggal untuk cek rentang kustom (KPI Absensi &amp; Patroli, termasuk persentase cakupan rute patroli). Kosongkan keduanya untuk kembali memakai filter Bulan/Tahun di atas.</p>
+        <p class="muted" id="penilaian-rentang-aktif" style="font-size:12px; margin-top:4px; margin-bottom:0; font-weight:600;"></p>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">KPI Absensi</div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr>
+              <th>Nama</th>
+              <th class="num">Tingkat Kehadiran<br><span class="muted">Target &ge;95-98%</span></th>
+              <th class="num">Ketepatan Waktu<br><span class="muted">Target &ge;95%</span></th>
+              <th class="num">Rata&sup2; Telat<br><span class="muted">Target &lt;10 menit</span></th>
+              <th class="num">Mangkir<br><span class="muted">Target 0</span></th>
+              <th class="num">Validitas Lokasi<br><span class="muted">Target 100%</span></th>
+              <th class="num">Potongan Telat<br><span class="muted">Rp</span></th>
+            </tr></thead>
+            <tbody id="penilaian-absensi-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="penilaian-patroli-panel">
+        <div class="section-title">KPI Patroli (khusus Security)</div>
+        <div id="penilaian-cakupan-patroli"></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr>
+              <th>Nama</th>
+              <th class="num">Ketepatan Rute<br><span class="muted">Target 100%</span></th>
+              <th class="num">Interval Rata&sup2;<br><span class="muted">Acuan tiap 2 jam</span></th>
+              <th class="num">Kelengkapan Dokumentasi<br><span class="muted">Target 100%</span></th>
+            </tr></thead>
+            <tbody id="penilaian-patroli-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">Parameter Belum Tersedia</div>
+        <p class="muted" style="font-size:13px;">8 parameter berikut butuh struktur data yang belum ada di sistem, jadi belum dihitung otomatis di sini:</p>
+        <ul class="muted" style="font-size:13px; padding-left:18px; margin:0;">
+          <li>Kepatuhan jam pulang &amp; Kepatuhan shift/rotasi — perlu jadwal jam pulang per shift (saat ini hanya jam masuk yang diatur)</li>
+          <li>Kepatuhan jadwal patroli — perlu target jumlah patroli terjadwal per hari/shift</li>
+          <li>Waktu tempuh patroli &amp; Jumlah checkpoint terlewat — perlu pengelompokan laporan per putaran patroli</li>
+          <li>Kecepatan respons insiden, Jumlah laporan kejadian, Tingkat kejadian tak terdeteksi — perlu modul laporan insiden (belum ada di sistem)</li>
+        </ul>
+      </div>
+    </section>
+
+
+    <section class="tabpanel" id="tab-kelola">
+      <div class="subtabs" data-target="grp-kelola">
+        <button data-sub="karyawan" class="active">Karyawan</button>
+        <button data-sub="lokasi">Lokasi Absensi</button>
+        <button data-sub="patroli">Titik Patroli</button>
+        <button data-sub="tugas">Tugas Kebersihan</button>
+        <button data-sub="jamkerja">Jam Kerja</button>
+        <button data-sub="qrweb">QR Akses Web</button>
+        <button data-sub="slipgaji" id="tab-sub-slipgaji" class="hidden">Slip Gaji</button>
+      </div>
+      <div id="grp-kelola">
+        <div data-sub-panel="karyawan" id="sub-karyawan"></div>
+        <div data-sub-panel="lokasi" id="sub-lokasi" class="hidden"></div>
+        <div data-sub-panel="patroli" id="sub-patroli" class="hidden"></div>
+        <div data-sub-panel="tugas" id="sub-tugas" class="hidden"></div>
+        <div data-sub-panel="jamkerja" id="sub-jamkerja" class="hidden"></div>
+        <div data-sub-panel="slipgaji" id="sub-slipgaji" class="hidden">
+          <div class="panel">
+            <div class="section-title">Slip Gaji Generator</div>
+            <p class="muted" style="font-size:13px; margin-top:-6px;">Rincian Pendapatan/Pengurangan tersimpan sebagai template per kombinasi Jabatan+Departemen (lihat daftar di bawah) - ganti Jabatan/Departemen untuk otomatis memuat template yang sudah ada. Pilih Nama Karyawan untuk mengisi nama &amp; ID karyawan di hasil slip, lalu klik Preview untuk melihat hasilnya dan Unduh untuk mencetak/simpan sebagai PDF.</p>
+            <div class="slip-cols">
+              <div class="slip-col">
+                <label>Logo Perusahaan (opsional)</label>
+                <div class="kd-foto-row">
+                  <img id="slip-logo-preview" class="foto-thumb hidden" alt="Preview logo">
+                  <input type="file" accept="image/*" id="slip-logo-input">
+                </div>
+
+                <label>Nama Perusahaan</label>
+                <input type="text" id="slip-nama-perusahaan" value="PT Cakra Adidaya Perkasa - Soerojo Hospital" disabled>
+
+                <label>Slip Gaji untuk Bulan</label>
+                <input type="month" id="slip-bulan">
+
+                <div class="section-title" style="margin-top:18px;">Rincian Karyawan</div>
+
+                <label>Nama Karyawan</label>
+                <select id="slip-nama-karyawan" onchange="pilihSlipKaryawan()">
+                  <option value="">Pilih karyawan...</option>
+                </select>
+
+                <label>ID Karyawan</label>
+                <input type="text" id="slip-id-karyawan" disabled>
+
+                <label>Jabatan</label>
+                <select id="slip-jabatan" onchange="muatTemplateSlipGaji()">
+                  <option value="Komandan Peleton (Danton)">Komandan Peleton (Danton)</option>
+                  <option value="Wakil Komandan Peleton (Wadanton)">Wakil Komandan Peleton (Wadanton)</option>
+                  <option value="Komandan Regu (Danru)">Komandan Regu (Danru)</option>
+                  <option value="Anggota" selected>Anggota</option>
+                </select>
+
+                <label>Departemen</label>
+                <select id="slip-departemen" onchange="muatTemplateSlipGaji()">
+                  <option value="Keamanan" selected>Keamanan</option>
+                  <option value="Kebersihan">Kebersihan</option>
+                  <option value="Administrasi">Administrasi</option>
+                  <option value="Pengemudi">Pengemudi</option>
+                </select>
+
+                <label>Payroll Cut Off (opsional)</label>
+                <input type="text" id="slip-cutoff" placeholder="1/10/2023-31/10/2023">
+
+                <label>Tanggal Bayar</label>
+                <input type="date" id="slip-tgl-bayar">
+
+                <div class="section-title" style="margin-top:18px;">Rincian Penghasilan</div>
+                <div class="slip-income-cols">
+                  <div>
+                    <label>Pendapatan</label>
+                    <div id="slip-pendapatan-rows"></div>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="tambahSlipItem('pendapatan')">+ Tambah item</button>
+                  </div>
+                  <div>
+                    <label>Pengurangan</label>
+                    <div id="slip-pengurangan-rows"></div>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="tambahSlipItem('pengurangan')">+ Tambah item</button>
+                  </div>
+                </div>
+
+                <label>Catatan (opsional)</label>
+                <textarea id="slip-catatan" rows="2"></textarea>
+
+                <label>Disetujui oleh - Nama</label>
+                <input type="text" id="slip-disetujui-nama" value="Bayu Brawarso">
+                <label>Disetujui oleh - Jabatan</label>
+                <input type="text" id="slip-disetujui-jabatan" value="HR Manager">
+
+                <div class="kd-form-row" style="margin-top:16px;">
+                  <button type="button" class="btn btn-primary" style="width:auto;" onclick="simpanSlipGaji()">Simpan Pengaturan</button>
+                  <button type="button" class="btn btn-navy" style="width:auto;" onclick="renderSlipPreview()">Preview</button>
+                  <button type="button" class="btn btn-outline" style="width:auto;" id="btn-unduh-slip-pdf" onclick="unduhSlipGajiPdf()">Unduh PDF</button>
+                </div>
+              </div>
+
+              <div class="slip-col">
+                <div id="slip-preview-cetak" class="slip-preview">
+                  <div class="muted" style="text-align:center; padding:40px 0;">Klik Preview untuk melihat hasil slip gaji.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-title">Pengaturan Slip Gaji Tersimpan</div>
+            <p class="muted" style="font-size:13px; margin-top:-6px;">Template per kombinasi Jabatan+Departemen yang sudah pernah disimpan. Klik Edit untuk memuatnya kembali ke form di atas.</p>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Jabatan</th><th>Departemen</th><th>Terakhir Diubah</th><th></th></tr></thead>
+                <tbody id="slip-daftar-tersimpan"><tr><td colspan="4" class="muted">Belum ada pengaturan tersimpan.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div data-sub-panel="qrweb" id="sub-qrweb" class="hidden">
+          <div class="panel">
+            <div class="section-title">QR Akses Web Karyawan</div>
+            <p class="muted" style="font-size:13px; margin-top:-6px;">Tempel link GitHub Pages web absensi karyawan (index.html), lalu generate QR-nya. Link ini otomatis diingat di browser ini untuk generate berikutnya.</p>
+            <label>Link Web Karyawan</label>
+            <input type="text" id="qrweb-link" placeholder="https://namaanda.github.io/nama-repo/">
+            <button class="btn btn-navy" id="btn-generate-qrweb" style="width:auto;">Generate QR</button>
+            <div id="qrweb-box" style="margin-top:16px; display:none;"></div>
+            <div id="qrweb-kode" class="muted mono" style="font-size:12.5px; margin-top:6px;"></div>
+            <button class="btn btn-outline hidden" id="btn-download-qrweb" style="width:auto;">Download PNG</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    
+    <section class="tabpanel" id="tab-persetujuan">
+      <div class="subtabs" data-target="grp-persetujuan">
+        <button data-sub="pendaftaran" class="active">Pendaftaran Baru</button>
+        <button data-sub="ijin">Pengajuan Ijin</button>
+      </div>
+      <div id="grp-persetujuan">
+        <div data-sub-panel="pendaftaran" id="sub-pendaftaran"></div>
+        <div data-sub-panel="ijin" id="sub-ijin" class="hidden"></div>
+      </div>
+    </section>
+
+    
+    <section class="tabpanel" id="tab-ai">
+      <div class="panel">
+        <div class="section-title">Tanya Admin AI</div>
+        <p class="muted" style="font-size:13px; margin-top:-6px;">AI menjawab berdasarkan data KPI bulan/tahun yang sedang dipilih di atas. Bersifat read-only, tidak bisa melakukan aksi apapun.</p>
+        <div class="chat-log" id="chat-log"></div>
+        <div class="chat-input-row">
+          <textarea id="chat-input" placeholder="Contoh: siapa yang paling sering telat bulan ini?"></textarea>
+          <button class="btn btn-primary" id="btn-chat-send" style="margin-top:0; width:auto;">Kirim</button>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="tabpanel" id="tab-rekap">
+      <div class="panel">
+        <div class="section-title">Rekap Absensi per Lokasi (Excel)</div>
+        <p class="muted" style="font-size:13px; margin-top:-6px;">Mengunduh rekap absensi untuk bulan &amp; tahun yang sedang difilter di atas, disaring per lokasi kerja klien ini. Khusus Admin CAP.</p>
+        <label>Lokasi</label>
+        <select id="rekap-lokasi"><option value="">Semua Lokasi</option></select>
+        <button class="btn btn-navy" id="btn-unduh-rekap" style="width:auto;">Unduh Excel</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+
+<div id="qr-modal" class="qr-modal hidden">
+  <div class="qr-modal-inner">
+    <div class="section-title" id="qr-modal-title">QR Kode</div>
+    <div id="qr-canvas-box"></div>
+    <div style="display:flex; gap:8px; margin-top:14px;">
+      <button class="btn btn-navy" id="btn-download-qr" style="margin-top:0;">Download PNG</button>
+      <button class="btn btn-outline" style="margin-top:0;" onclick="tutupQrModal()">Tutup</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+const API_URL = 'https://wewjoflrfnhsesboacxn.supabase.co/functions/v1/absensi-api';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indld2pvZmxyZm5oc2VzYm9hY3huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3OTg2NzMsImV4cCI6MjExMDM3NDY3M30.0lCidAyATJFxAaDZDGrurxBEOqE4eTG6AiwvtX1uuTM';
+const KODE_KLIEN = new URLSearchParams(location.search).get('klien') || '';
+// Menu Slip Gaji baru dipakai klien SOEROJO HOSPITAL, sembunyikan untuk klien lain.
+const KLIEN_SLIP_GAJI_DIIZINKAN = ['soerojo-hospital'];
+if (KLIEN_SLIP_GAJI_DIIZINKAN.includes(KODE_KLIEN)) {
+  document.getElementById('tab-sub-slipgaji').classList.remove('hidden');
+}
+// Menu "Laporan Kejadian" (rekap/pengawasan) baru dipakai klien SOEROJO
+// HOSPITAL juga - sama dengan index.html.
+const KLIEN_LAPORAN_KEJADIAN_DIIZINKAN = ['soerojo-hospital'];
+if (KLIEN_LAPORAN_KEJADIAN_DIIZINKAN.includes(KODE_KLIEN)) {
+  document.getElementById('tab-btn-kejadian').classList.remove('hidden');
+}
+// Link "Admin Klien" dari Super Admin membawa ?akses=klien. Dengan ini
+// dikirim ke server, password Admin CAP (ADMIN_PASSWORD) tidak akan pernah
+// diterima lewat link ini, jadi link yang dipegang klien tidak bisa dipakai
+// untuk masuk sebagai Admin CAP walau passwordnya bocor.
+const AKSES_PARAM = new URLSearchParams(location.search).get('akses') || '';
+const SESSION_KEY = 'ray_admin_session_' + KODE_KLIEN + (AKSES_PARAM ? '_' + AKSES_PARAM : '');
+
+// Mode Koordinator Lapangan: link-nya TIDAK membawa ?klien=... (koordinator
+// pegang banyak lokasi, bukan satu), jadi dibedakan lewat ?akses=koordinator.
+// ?koor=... (opsional) hanya mengisi otomatis field "Kode Koordinator" di
+// form login, meniru pola link klien yang sudah membawa identitasnya di URL.
+const MODE_KOORDINATOR = AKSES_PARAM === 'koordinator';
+const KODE_KOORDINATOR_URL = new URLSearchParams(location.search).get('koor') || '';
+const KOORDINATOR_SESSION_KEY = 'ray_koordinator_session';
+let kodeKoordinator = '';
+let klienIdAktif = '';
+let daftarLokasiKoordinator = [];
+let namaKlienAktif = '';
+let logoKlienAktif = '';
+
+// Ikon PWA yang sudah diinstal membuka halaman tanpa query string (?klien=...&akses=...).
+// Simpan link lengkap saat dibuka normal, lalu redirect otomatis ke link itu
+// kalau suatu saat dibuka tanpa parameter (mis. dari ikon di layar utama).
+// Cookie dipakai sebagai penyimpanan utama (localStorage tidak selalu ikut
+// terbawa dari tab Safari biasa ke web app Home Screen di iOS).
+function raySetCookie(nama, nilai, hari) {
+  try {
+    const d = new Date();
+    d.setTime(d.getTime() + hari * 24 * 60 * 60 * 1000);
+    document.cookie = nama + '=' + encodeURIComponent(nilai) + '; expires=' + d.toUTCString() + '; path=/';
+  } catch (e) {}
+}
+function rayGetCookie(nama) {
+  try {
+    const m = document.cookie.match('(?:^|; )' + nama + '=([^;]*)');
+    return m ? decodeURIComponent(m[1]) : '';
+  } catch (e) { return ''; }
+}
+// Cadangan tambahan selain cookie/localStorage: titipkan query string ke Cache
+// Storage milik Service Worker (lewat postMessage) - lihat catatan di index.html.
+function kirimQsKeServiceWorker(halaman, qs) {
+  if (!qs || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.ready.then((reg) => {
+    if (reg.active) reg.active.postMessage({ type: 'SIMPAN_QS', halaman, qs });
+  }).catch(() => {});
+}
+let SEDANG_REDIRECT_PWA = false;
+if (KODE_KLIEN || MODE_KOORDINATOR) {
+  raySetCookie('ray_pwa_admin_start_qs', location.search, 730);
+  try { localStorage.setItem('ray_pwa_admin_start_qs', location.search); } catch(e){}
+  kirimQsKeServiceWorker('admin.html', location.search);
+} else {
+  try {
+    const savedQs = rayGetCookie('ray_pwa_admin_start_qs') || localStorage.getItem('ray_pwa_admin_start_qs') || '';
+    if (savedQs) {
+      SEDANG_REDIRECT_PWA = true;
+      location.replace('admin.html' + savedQs);
+    }
+  } catch(e){}
+}
+
+let adminPassword = '';
+let peran = '';
+let filterBulan, filterTahun;
+const NAMA_BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+function tanggalHariIni() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+let tanggalHarianAbsensi = tanggalHariIni();
+let tanggalHarianPatroli = tanggalHariIni();
+
+async function api(action, payload) {
+  try {
+    const dasar = { action, kodeKlien: KODE_KLIEN, akses: AKSES_PARAM };
+    // Request admin koordinator (semua kecuali loginKoordinator sendiri) ikut
+    // menyertakan kodeKoordinator + klienId lokasi yang sedang aktif, supaya
+    // otorisasiAdmin di server tahu lokasi mana yang boleh diakses.
+    if (MODE_KOORDINATOR && action !== 'loginKoordinator') {
+      dasar.kodeKoordinator = kodeKoordinator;
+      dasar.klienId = klienIdAktif;
+    }
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify(Object.assign(dasar, payload || {}))
+    });
+    return await res.json();
+  } catch (e) {
+    return { sukses: false, pesan: 'Gagal terhubung ke server.' };
+  }
+}
+function showToast(pesan, ok) {
+  const t = document.getElementById('toast');
+  t.textContent = pesan;
+  t.className = 'toast ' + (ok ? 'ok' : 'err');
+  t.classList.remove('hidden');
+  clearTimeout(showToast._tm);
+  showToast._tm = setTimeout(() => t.classList.add('hidden'), 3800);
+}
+function setBusy(btn, busy, labelBusy, labelNormal) {
+  btn.disabled = busy;
+  btn.textContent = busy ? (labelBusy || 'Memproses...') : labelNormal;
+}
+
+// LOG SYSTEM CALL (JANGAN DIHAPUS, akan mengirim info error ke server bila backend dikonfigurasi)
+function kirimLogKeSistem(tipe, deskripsi) {
+  api('simpanLogSystem', { tipe, deskripsi, waktu: new Date().toISOString(), user: 'Admin' }).catch(()=>{});
+}
+
+function tampilkanLinkTidakValid(pesan) {
+  document.getElementById('screen-login').classList.add('hidden');
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('klien-invalid-pesan').textContent = pesan || 'Link ini tidak valid atau klien sudah tidak aktif.';
+  document.getElementById('screen-klien-invalid').classList.remove('hidden');
+}
+async function muatInfoSistem() {
+  if (SEDANG_REDIRECT_PWA) return; // sedang redirect ke link lengkap, biarkan halaman berpindah dulu
+  if (MODE_KOORDINATOR) {
+    // Koordinator belum punya klien tetap di URL (baru dipilih setelah login),
+    // jadi branding diisi generik dulu, lalu diganti nama lokasi aktif setelah dipilih.
+    document.title = 'Admin — Koordinator Lapangan';
+    const brand = document.getElementById('brand-header');
+    if (brand) brand.textContent = 'Absensi CAP · Koordinator Lapangan';
+    return;
+  }
+  if (!KODE_KLIEN) {
+    tampilkanLinkTidakValid('Link admin tidak lengkap. Pastikan URL mengandung ?klien=... di akhir (link diberikan oleh Super Admin).');
+    return;
+  }
+  const res = await api('infoSistem', {});
+  if (!res.sukses) {
+    tampilkanLinkTidakValid(res.pesan);
+    return;
+  }
+  const nama = res.namaKlien || '';
+  document.title = 'Admin — ' + (nama || 'Absensi CAP');
+  const sub = document.getElementById('subtitle-klien');
+  if (sub) sub.textContent = nama ? ('Klien: ' + nama) : '';
+  const brand = document.getElementById('brand-header');
+  if (brand) brand.textContent = nama ? ('Absensi CAP · ' + nama) : 'Absensi CAP';
+  namaKlienAktif = nama;
+  if (res.logoUrl) {
+    logoKlienAktif = res.logoUrl;
+    document.querySelectorAll('img[alt="logo"]').forEach(el => { el.src = res.logoUrl; });
+  }
+}
+
+// Form login tampil beda untuk Koordinator Lapangan: ada field "Kode
+// Koordinator" tambahan (diisi otomatis & dikunci kalau link bawa ?koor=...),
+// dan judulnya diganti supaya tidak membingungkan dengan Panel Admin klien.
+if (MODE_KOORDINATOR) {
+  document.getElementById('login-judul').textContent = 'Koordinator Lapangan';
+  document.getElementById('label-kode-koordinator').classList.remove('hidden');
+  const inputKode = document.getElementById('login-kode-koordinator');
+  inputKode.classList.remove('hidden');
+  if (KODE_KOORDINATOR_URL) { inputKode.value = KODE_KOORDINATOR_URL; inputKode.disabled = true; }
+}
+
+document.getElementById('btn-login-admin').addEventListener('click', async () => {
+  const pass = document.getElementById('login-password').value;
+  if (!pass) return showToast('Masukkan password.', false);
+  const btn = document.getElementById('btn-login-admin');
+
+  if (MODE_KOORDINATOR) {
+    const kode = document.getElementById('login-kode-koordinator').value.trim();
+    if (!kode) return showToast('Masukkan kode koordinator.', false);
+    setBusy(btn, true, 'Memeriksa...', 'Masuk');
+    const res = await api('loginKoordinator', { kodeKoordinator: kode, password: pass });
+    setBusy(btn, false, '', 'Masuk');
+    if (!res.sukses) {
+      kirimLogKeSistem('ERROR_LOGIN_KOORDINATOR', res.pesan || 'Login koordinator gagal.');
+      return showToast(res.pesan || 'Login koordinator gagal.', false);
+    }
+    kodeKoordinator = kode;
+    adminPassword = pass;
+    daftarLokasiKoordinator = res.daftarLokasi || [];
+    localStorage.setItem(KOORDINATOR_SESSION_KEY, JSON.stringify({ kodeKoordinator, adminPassword }));
+    tampilkanPilihLokasi(res.namaKoordinator);
+    return;
+  }
+
+  setBusy(btn, true, 'Memeriksa...', 'Masuk');
+  const res = await api('loginAdmin', { password: pass });
+  setBusy(btn, false, '', 'Masuk');
+
+  if (!res.sukses) {
+    kirimLogKeSistem('ERROR_LOGIN_ADMIN', res.pesan || 'Password salah.');
+    return showToast(res.pesan || 'Password salah.', false);
+  }
+
+  adminPassword = pass;
+  peran = res.peran;
+
+  // Persistensi Sesi
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ adminPassword, peran }));
+
+  masukKeApp();
+});
+document.getElementById('login-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-login-admin').click();
+});
+
+// ---------- KOORDINATOR: PILIH LOKASI ----------
+function tampilkanPilihLokasi(namaKoordinator) {
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('subtitle-koordinator').textContent = namaKoordinator ? ('Masuk sebagai ' + namaKoordinator) : '';
+  const sel = document.getElementById('pilih-lokasi-select');
+  sel.innerHTML = daftarLokasiKoordinator.map(l => '<option value="' + l.id + '">' + escapeHtml(l.namaKlien) + '</option>').join('');
+  document.getElementById('screen-pilih-lokasi').classList.remove('hidden');
+  document.getElementById('screen-pilih-lokasi').style.display = 'flex';
+}
+document.getElementById('btn-masuk-lokasi').addEventListener('click', () => {
+  const sel = document.getElementById('pilih-lokasi-select');
+  klienIdAktif = sel.value;
+  const lokasi = daftarLokasiKoordinator.find(l => l.id === klienIdAktif);
+  localStorage.setItem(KOORDINATOR_SESSION_KEY, JSON.stringify({ kodeKoordinator, adminPassword, klienIdAktif }));
+  document.getElementById('screen-pilih-lokasi').classList.add('hidden');
+  document.getElementById('screen-pilih-lokasi').style.display = 'none';
+  peran = 'koordinator';
+  masukKeApp(lokasi);
+});
+document.getElementById('btn-ganti-akun-koordinator').addEventListener('click', () => {
+  kodeKoordinator = ''; adminPassword = ''; klienIdAktif = ''; daftarLokasiKoordinator = [];
+  localStorage.removeItem(KOORDINATOR_SESSION_KEY);
+  document.getElementById('screen-pilih-lokasi').classList.add('hidden');
+  document.getElementById('screen-pilih-lokasi').style.display = 'none';
+  document.getElementById('login-password').value = '';
+  document.getElementById('screen-login').style.display = 'flex';
+});
+
+document.getElementById('btn-logout-admin').addEventListener('click', () => {
+  adminPassword = ''; peran = '';
+
+  // Hapus Sesi
+  localStorage.removeItem(SESSION_KEY);
+  if (MODE_KOORDINATOR) {
+    localStorage.removeItem(KOORDINATOR_SESSION_KEY);
+    kodeKoordinator = ''; klienIdAktif = ''; daftarLokasiKoordinator = [];
+  }
+
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('screen-login').style.display = 'flex';
+  document.getElementById('login-password').value = '';
+});
+
+function masukKeApp(lokasiKoordinatorAktif) {
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').classList.add('show');
+  const roleTag = document.getElementById('role-tag');
+  const adalahRay = peran === 'super';
+  const adalahKoordinator = peran === 'koordinator';
+  const adalahInternal = adalahRay || adalahKoordinator;
+  roleTag.textContent = adalahRay ? 'Admin CAP' : (adalahKoordinator ? 'KOORDINATOR' : 'ADMIN KLIEN');
+  roleTag.classList.toggle('internal', adalahInternal);
+  // "Kelola Data" & "Rekap Excel" khusus Admin CAP (bukan koordinator - menu
+  // koordinator sengaja dibatasi ke pengawasan dashboard + Persetujuan saja).
+  // "Persetujuan" terbuka untuk Admin CAP maupun Koordinator Lapangan.
+  // Admin Klien tidak melihat satu pun dari ketiganya.
+  ['tab-btn-kelola', 'tab-btn-rekap'].forEach((id) => {
+    document.getElementById(id).classList.toggle('hidden', !adalahRay);
+  });
+  document.getElementById('tab-btn-persetujuan').classList.toggle('hidden', !adalahInternal);
+
+  // Switcher lokasi di header: hanya relevan untuk koordinator yang pegang
+  // lebih dari satu lokasi. Pilih salah satu untuk pindah tanpa login ulang.
+  const labelLokasi = document.getElementById('label-lokasi-aktif');
+  const selLokasi = document.getElementById('lokasi-aktif-select');
+  if (adalahKoordinator) {
+    labelLokasi.classList.remove('hidden');
+    selLokasi.classList.remove('hidden');
+    selLokasi.innerHTML = daftarLokasiKoordinator.map(l => '<option value="' + l.id + '">' + escapeHtml(l.namaKlien) + '</option>').join('');
+    selLokasi.value = klienIdAktif;
+    perbaruiBrandingLokasiAktif(lokasiKoordinatorAktif || daftarLokasiKoordinator.find(l => l.id === klienIdAktif));
+  } else {
+    labelLokasi.classList.add('hidden');
+    selLokasi.classList.add('hidden');
+  }
+
+  const now = new Date();
+  filterBulan = now.getMonth() + 1; filterTahun = now.getFullYear();
+  const selBulan = document.getElementById('filter-bulan');
+  selBulan.innerHTML = NAMA_BULAN.map((n,i) => '<option value="'+(i+1)+'">'+n+'</option>').join('');
+  selBulan.value = filterBulan;
+  document.getElementById('filter-tahun').value = filterTahun;
+
+  muatSemuaDashboard();
+}
+
+// Ganti nama/logo yang ditampilkan di header sesuai lokasi aktif koordinator
+// (tidak lewat infoSistem seperti admin klien biasa, karena koordinator tidak
+// punya satu kodeKlien tetap di URL — datanya dipakai langsung dari daftarLokasi
+// hasil loginKoordinator/pilihan sebelumnya, tanpa panggilan API tambahan).
+function perbaruiBrandingLokasiAktif(lokasi) {
+  if (!lokasi) return;
+  document.title = 'Admin — ' + lokasi.namaKlien;
+  const brand = document.getElementById('brand-header');
+  if (brand) brand.textContent = 'Absensi CAP · ' + lokasi.namaKlien;
+  if (lokasi.logoUrl) document.querySelectorAll('img[alt="logo"]').forEach(el => { el.src = lokasi.logoUrl; });
+}
+document.getElementById('lokasi-aktif-select').addEventListener('change', (e) => {
+  klienIdAktif = e.target.value;
+  const saved = JSON.parse(localStorage.getItem(KOORDINATOR_SESSION_KEY) || '{}');
+  saved.klienIdAktif = klienIdAktif;
+  localStorage.setItem(KOORDINATOR_SESSION_KEY, JSON.stringify(saved));
+  perbaruiBrandingLokasiAktif(daftarLokasiKoordinator.find(l => l.id === klienIdAktif));
+  muatSemuaDashboard();
+  bagianPenilaianDiatur = false;
+  if (document.getElementById('tab-penilaian').classList.contains('active')) aturBagianPenilaianDefault().then(muatPenilaian);
+  if (document.getElementById('tab-persetujuan').classList.contains('active')) muatPersetujuan();
+});
+document.getElementById('btn-terapkan-filter').addEventListener('click', () => {
+  filterBulan = parseInt(document.getElementById('filter-bulan').value, 10);
+  filterTahun = parseInt(document.getElementById('filter-tahun').value, 10);
+  muatSemuaDashboard();
+  if (document.getElementById('tab-penilaian').classList.contains('active')) muatPenilaian();
+  if (document.querySelector('.subtabs[data-target="grp-absensi"] button[data-sub="matriks"]').classList.contains('active')) muatMatriksAbsensi();
+});
+
+document.getElementById('tabs').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-tab]');
+  if (!btn) return;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  if (btn.dataset.tab === 'persetujuan') muatPersetujuan();
+  if (btn.dataset.tab === 'kelola') { muatKelola('karyawan'); initQrWeb(); }
+  if (btn.dataset.tab === 'rekap') muatLokasiRekap();
+  if (btn.dataset.tab === 'penilaian') aturBagianPenilaianDefault().then(muatPenilaian);
+});
+
+document.querySelectorAll('.subtabs[data-target]').forEach(group => {
+  const wrap = document.getElementById(group.dataset.target);
+  group.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      group.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      wrap.querySelectorAll('[data-sub-panel]').forEach(p => p.classList.add('hidden'));
+      wrap.querySelector('[data-sub-panel="' + b.dataset.sub + '"]').classList.remove('hidden');
+      if (group.dataset.target === 'grp-kelola') {
+        if (b.dataset.sub === 'qrweb') initQrWeb();
+        else if (b.dataset.sub === 'slipgaji') initSlipGaji();
+        else muatKelola(b.dataset.sub);
+      }
+      if (group.dataset.target === 'grp-absensi' && b.dataset.sub === 'matriks') muatMatriksAbsensi();
+    });
+  });
+});
+
+function muatSemuaDashboard() {
+  muatDashboardAbsensi();
+  muatRiwayatAbsensiDetail();
+  muatRingkasanHarianAbsensi();
+  muatDashboardOperasional('ambilDashboardPatroli', 'patroli-stats', 'patroli-table');
+  muatRiwayatPatroliDetail();
+  muatRingkasanHarianPatroli();
+  muatDashboardOperasional('ambilDashboardCleaning', 'cleaning-stats', 'cleaning-table');
+  muatRiwayatKegiatanDetail();
+  if (KLIEN_LAPORAN_KEJADIAN_DIIZINKAN.includes(KODE_KLIEN)) { muatDashboardKejadian(); muatRiwayatKejadianDetail(); }
+}
+
+// ===== LAPORAN KEJADIAN: rekap/pengawasan admin (khusus SOEROJO HOSPITAL) =====
+let kejadianDaftarAdminTerakhir = [];
+async function muatDashboardKejadian() {
+  const res = await api('ambilDashboardKejadian', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) return showToast(res.pesan, false);
+  const kpi = res.kpi;
+  document.getElementById('kejadian-stats').innerHTML =
+    statTile(kpi.total, 'Total Laporan') +
+    statTile(kpi.perStatus['Menunggu Verifikasi Danru'] || 0, 'Menunggu Danru') +
+    statTile(kpi.perStatus['Terverifikasi Danru'] || 0, 'Menunggu Danton') +
+    statTile(kpi.perStatus['Selesai'] || 0, 'Selesai') +
+    statTile(kpi.perLevel['Merah'] || 0, 'Level Merah');
+}
+async function muatRiwayatKejadianDetail() {
+  const tbody = document.getElementById('kejadian-detail-table');
+  const res = await api('daftarKejadianDetailAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) { tbody.innerHTML = '<tr><td colspan="8" class="muted">' + res.pesan + '</td></tr>'; return; }
+  kejadianDaftarAdminTerakhir = res.daftar || [];
+  tbody.innerHTML = kejadianDaftarAdminTerakhir.length ? kejadianDaftarAdminTerakhir.map((r, i) => {
+    const level = r.levelFinal || r.klasifikasiDanru || r.levelAwal || '-';
+    const jmlFoto = (r.dokumentasi || []).length;
+    return '<tr>' +
+      '<td class="mono">' + (r.nomorKejadian || '-') + '</td>' +
+      '<td class="mono">' + String(r.dibuatPada || '').slice(0, 10) + '</td>' +
+      '<td>' + (r.lokasi || '-') + '</td>' +
+      '<td>' + (r.jenisLaporan || '-') + '</td>' +
+      '<td>' + level + '</td>' +
+      '<td>' + (r.status || '-') + '</td>' +
+      '<td>' + (jmlFoto ? ('<a href="' + r.dokumentasi[0].url + '" target="_blank" rel="noopener">' + jmlFoto + ' foto</a>') : '-') + '</td>' +
+      '<td><button type="button" class="btn btn-outline btn-sm" onclick="kjAdminCetakPdf(' + i + ')">Cetak PDF</button></td>' +
+    '</tr>';
+  }).join('') : '<tr><td colspan="8" class="muted">Belum ada laporan kejadian pada periode ini.</td></tr>';
+}
+async function kjAdminCetakPdf(i) {
+  const l = kejadianDaftarAdminTerakhir[i];
+  if (!l) return;
+  showToast('Menyiapkan PDF...', true);
+  await kjGambarPdfAdmin(l, kjTingkatDariStatus(l.status));
+}
+// Tingkat cetak selalu mengikuti status TERKINI laporan (bukan tingkat tetap
+// per tombol) - sama seperti index.html.
+function kjTingkatDariStatus(status) {
+  if (status === 'Selesai') return 'A-K';
+  if (status === 'Terverifikasi Danru') return 'A-I';
+  return 'A-G';
+}
+function kjFmtWaktu(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const teks = d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return teks + ' WIB';
+}
+// Beri pemisah ribuan titik untuk nilai yang murni angka (mis. "Nilai
+// sementara" barang/aset); teks non-angka ditampilkan apa adanya.
+function kjFormatAngka(val) {
+  if (val == null || val === '') return '-';
+  const s = String(val).trim();
+  if (!/^\d+$/.test(s)) return s;
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+function kjMuatGambar(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+// PDF replika tata-letak form Google Docs asli - salinan dari kjGambarPdf di
+// index.html (file ini berdiri sendiri, tidak share module JS dengan index.html).
+async function kjGambarPdfAdmin(l, tingkat) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const kiri = 14, kanan = 196, lebar = kanan - kiri;
+  let y = 16;
+  const cekPage = (tambahan) => { if (y + tambahan > 283) { doc.addPage(); y = 16; } };
+
+  function judul(teks) {
+    cekPage(22); // judul + sedikit ruang isinya, supaya judul tidak nyasar sendirian di akhir halaman
+    doc.setFillColor(222, 234, 246); doc.setDrawColor(23, 56, 92); doc.setLineWidth(0.3);
+    doc.rect(kiri, y, lebar, 7, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(23, 56, 92);
+    doc.text(teks, kiri + 2, y + 5);
+    y += 9;
+  }
+  function baris2Kolom(label1, teks1, label2, teks2) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    if (label2 == null) {
+      const lines1 = doc.splitTextToSize(String(teks1 == null || teks1 === '' ? '-' : teks1), lebar - 4);
+      const h = lines1.length * 4.2 + 7;
+      cekPage(h + 1);
+      doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2); doc.rect(kiri, y, lebar, h);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+      doc.text(label1, kiri + 2, y + 4.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+      doc.text(lines1, kiri + 2, y + 9);
+      y += h;
+      return;
+    }
+    const w = lebar / 2;
+    const lines1 = doc.splitTextToSize(String(teks1 == null || teks1 === '' ? '-' : teks1), w - 6);
+    const lines2 = doc.splitTextToSize(String(teks2 == null || teks2 === '' ? '-' : teks2), w - 6);
+    const h = Math.max(lines1.length, lines2.length) * 4.2 + 7;
+    cekPage(h + 1);
+    doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2); doc.rect(kiri, y, lebar, h);
+    doc.line(kiri + w, y, kiri + w, y + h);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+    doc.text(label1, kiri + 2, y + 4.5); doc.text(label2, kiri + w + 2, y + 4.5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+    doc.text(lines1, kiri + 2, y + 9); doc.text(lines2, kiri + w + 2, y + 9);
+    y += h;
+  }
+  function gambarOpsiChecklist(x, yAwal, w, opsiNorm, nilai) {
+    const nilaiTrim = (nilai || '').trim();
+    const isLainnya = nilaiTrim.toLowerCase().startsWith('lainnya:');
+    const teksLainnya = isLainnya ? nilaiTrim.slice(nilaiTrim.indexOf(':') + 1).trim() : '';
+    let cx = x, cy = yAwal;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8);
+    opsiNorm.forEach((o) => {
+      const lebarOpsi = 4.2 + doc.getTextWidth(o.label) + 4;
+      if (cx + lebarOpsi > x + w) { cx = x; cy += 4.6; }
+      const dicentang = isLainnya ? (o.val === 'Lainnya') : (o.val === nilaiTrim);
+      doc.setDrawColor(90, 90, 90); doc.setLineWidth(0.25); doc.rect(cx, cy - 2.8, 3, 3);
+      if (dicentang) { doc.setFillColor(23, 56, 92); doc.rect(cx + 0.5, cy - 2.3, 2, 2, 'F'); }
+      doc.setTextColor(31, 41, 55);
+      doc.text(o.label, cx + 4, cy);
+      cx += lebarOpsi;
+    });
+    if (isLainnya && teksLainnya) {
+      cy += 4.6;
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7.3); doc.setTextColor(90, 90, 90);
+      doc.text('Keterangan: ' + teksLainnya, x, cy);
+    }
+    return cy;
+  }
+  function checklistBaris(label, opsi, nilai) {
+    const opsiNorm = opsi.map(o => typeof o === 'string' ? { val: o, label: o } : o);
+    const nilaiTrim = (nilai || '').trim();
+    const isLainnya = nilaiTrim.toLowerCase().startsWith('lainnya:');
+    const jmlBarisOpsi = Math.ceil(opsiNorm.length / 5);
+    const h = 6.5 + jmlBarisOpsi * 4.6 + (isLainnya ? 4.6 : 0) + 2;
+    cekPage(h + 1);
+    doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2); doc.rect(kiri, y, lebar, h);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);
+    doc.text(label, kiri + 2, y + 4.5);
+    gambarOpsiChecklist(kiri + 2, y + 9.3, lebar - 4, opsiNorm, nilai);
+    y += h;
+  }
+  function tabelBerulang(headers, colRatios, rows) {
+    const colWidths = colRatios.map(r => r * lebar);
+    const colX = []; let acc = kiri; colRatios.forEach(r => { colX.push(acc); acc += r * lebar; });
+    // Cek muat header + baris pertama SEKALIGUS sebelum mulai gambar, supaya
+    // header tabel tidak pernah "nyasar" sendirian di baris terakhir halaman
+    // dengan baris datanya baru mulai di halaman berikutnya.
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8);
+    let tinggiBarisPertama = 6;
+    if (rows.length) {
+      const lines0 = rows[0].map((c, i) => doc.splitTextToSize(String(c == null || c === '' ? '-' : c), colWidths[i] - 3));
+      tinggiBarisPertama = Math.max(...lines0.map(ls => ls.length)) * 3.6 + 3;
+    }
+    cekPage(6.5 + tinggiBarisPertama + 1);
+    doc.setFillColor(230, 238, 245); doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2);
+    doc.rect(kiri, y, lebar, 6.5, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60);
+    headers.forEach((h, i) => { doc.text(h, colX[i] + 1.5, y + 4.3); if (i > 0) doc.line(colX[i], y, colX[i], y + 6.5); });
+    y += 6.5;
+    if (!rows.length) {
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, 6);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(140, 140, 140);
+      doc.text('(kosong)', kiri + 2, y + 4); y += 6;
+      return;
+    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(31, 41, 55);
+    rows.forEach((cells) => {
+      const linesPerCell = cells.map((c, i) => doc.splitTextToSize(String(c == null || c === '' ? '-' : c), colWidths[i] - 3));
+      const h = Math.max(...linesPerCell.map(ls => ls.length)) * 3.6 + 3;
+      cekPage(h + 1);
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, h);
+      linesPerCell.forEach((lines, i) => { if (i > 0) doc.line(colX[i], y, colX[i], y + h); doc.text(lines, colX[i] + 1.5, y + 3.3); });
+      y += h;
+    });
+  }
+  async function tabelFoto(items) {
+    const colRatios = [0.08, 0.32, 0.60];
+    const colX = []; let acc = kiri; colRatios.forEach(r => { colX.push(acc); acc += r * lebar; });
+    const imgH = 26;
+    cekPage(6.5 + (items.length ? imgH + 3 : 6) + 1);
+    doc.setFillColor(230, 238, 245); doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2);
+    doc.rect(kiri, y, lebar, 6.5, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(60, 60, 60);
+    ['No', 'Foto', 'Keterangan'].forEach((h, i) => { doc.text(h, colX[i] + 1.5, y + 4.3); if (i > 0) doc.line(colX[i], y, colX[i], y + 6.5); });
+    y += 6.5;
+    if (!items.length) {
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, 6);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(140, 140, 140);
+      doc.text('(tidak ada foto)', kiri + 2, y + 4); y += 6;
+      return;
+    }
+    for (let i = 0; i < items.length; i++) {
+      cekPage(imgH + 3 + 1);
+      doc.setDrawColor(190, 190, 190); doc.rect(kiri, y, lebar, imgH + 3);
+      doc.line(colX[1], y, colX[1], y + imgH + 3); doc.line(colX[2], y, colX[2], y + imgH + 3);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+      doc.text(String(i + 1), colX[0] + 1.5, y + 4);
+      let imgEl = null;
+      try { imgEl = await kjMuatGambar(items[i].url); } catch (e) { imgEl = null; }
+      if (imgEl && imgEl.naturalWidth) {
+        try {
+          const rasio = imgEl.naturalWidth / imgEl.naturalHeight || 1;
+          const boxW = colRatios[1] * lebar - 3, boxH = imgH;
+          let dw = boxW, dh = boxW / rasio;
+          if (dh > boxH) { dh = boxH; dw = boxH * rasio; }
+          doc.addImage(imgEl, 'JPEG', colX[1] + 1.5, y + 1.5, dw, dh);
+        } catch (e) {
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+          doc.text('Gagal memuat gambar', colX[1] + 1.5, y + imgH / 2);
+        }
+      } else {
+        doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+        doc.text('Gagal memuat gambar', colX[1] + 1.5, y + imgH / 2);
+      }
+      const ketLines = doc.splitTextToSize(items[i].keterangan || '-', colRatios[2] * lebar - 3);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(31, 41, 55);
+      doc.text(ketLines, colX[2] + 1.5, y + 4);
+      y += imgH + 3;
+    }
+  }
+  function signatureRow(cols) {
+    const w = lebar / cols.length, h = 36; // +-4 baris kosong di bawah judul untuk tempat tanda tangan fisik
+    cekPage(h + 1);
+    doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.2);
+    cols.forEach((c, i) => {
+      const x = kiri + i * w;
+      doc.rect(x, y, w, h);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.3); doc.setTextColor(60, 60, 60);
+      doc.text(doc.splitTextToSize(c.judul, w - 4), x + 2, y + 4);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(31, 41, 55);
+      doc.text('Nama: ' + (c.nama || '-'), x + 2, y + h - 7);
+      doc.text('Tanggal/Jam: ' + (c.waktu || '-'), x + 2, y + h - 3);
+    });
+    y += h;
+  }
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(23, 56, 92);
+  doc.text('LAPORAN KEJADIAN', kiri, y); y += 3;
+  doc.setDrawColor(23, 56, 92); doc.setLineWidth(0.6); doc.line(kiri, y, kanan, y); y += 6;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100, 100, 100);
+  doc.text('PT Cakra Adidaya Perkasa', kiri, y); y += 7;
+
+  judul('A. IDENTITAS DAN KLASIFIKASI AWAL');
+  baris2Kolom('Nomor kejadian', l.nomorKejadian, 'Tanggal laporan', kjFmtWaktu(l.dibuatPada));
+  baris2Kolom('Lokasi/site', l.lokasi, 'Unit/area', l.unit);
+  checklistBaris('Jenis laporan', ['Kehilangan', 'Pencurian', 'Barang temuan', 'Perkelahian', 'Kebakaran', 'Medis', { val: 'Lainnya', label: 'Lainnya' }], l.jenisLaporan);
+  checklistBaris('Level', ['Merah', 'Oranye', 'Kuning', 'Hijau'], l.levelAwal);
+  baris2Kolom('Waktu terjadi', kjFmtWaktu(l.waktuTerjadi), 'Waktu diketahui', kjFmtWaktu(l.waktuDiketahui));
+  baris2Kolom('Pelapor', 'Nama: ' + (l.namaPelapor || '-') + '\nNo. Tlf: ' + (l.telpPelapor || '-') + '\nAsal: ' + (l.asalPelapor || '-'),
+    'Petugas penerima laporan', 'Nama: ' + (l.namaPetugas || '-') + '\nNo. ID: ' + (l.idPetugas || '-'));
+
+  y += 5;
+  judul('B. KONDISI SAAT PERTAMA DIKETAHUI');
+  baris2Kolom('Kondisi awal', l.kondisiAwal, null, null);
+
+  y += 5;
+  judul('C. KRONOLOGI LAPORAN KEJADIAN — URUT WAKTU');
+  tabelBerulang(['No', 'Waktu', 'Uraian fakta/tindakan'], [0.08, 0.14, 0.78],
+    (l.kronologi || []).map((k, i) => [String(i + 1), k.waktu || '-', k.uraian || '-']));
+
+  y += 5;
+  judul('D. TINDAKAN AWAL');
+  checklistBaris('Tindakan keselamatan', ['Tidak diperlukan', 'Alarm', 'Evakuasi', 'Pertolongan pertama', 'APAR', { val: 'Lainnya', label: 'Lainnya' }], l.tindakanKeselamatan);
+  checklistBaris('Tindakan pengamanan', ['Perimeter', 'Pembatasan akses', 'Pisahkan pihak', 'Jaga barang', { val: 'Lainnya', label: 'Lainnya' }], l.tindakanPengamanan);
+  const pd = l.pihakDihubungi || {};
+  baris2Kolom('Pihak dihubungi', 'Nama/instansi: ' + (pd.nama || '-') + '\nWaktu: ' + (pd.waktu || '-') + '\nRespons: ' + (pd.respons || '-'), 'Korban/luka', l.korban);
+  baris2Kolom('Bahaya saat serah-terima', l.bahayaSerahTerima, null, null);
+
+  y += 5;
+  judul('E. KONDISI AKHIR — PIHAK TERLIBAT & ASET');
+  const kolomE = [0.06, 0.24, 0.22, 0.22, 0.26];
+  tabelBerulang(['No', 'Nama', 'Status/peran', 'Kontak/unit', 'Keterangan'], kolomE,
+    (l.pihakTerlibat || []).map((p, i) => [String(i + 1), p.nama || '-', p.status || '-', p.kontak || '-', p.ket || '-']));
+  y += 2;
+  tabelBerulang(['No', 'Barang/aset', 'Identitas/nomor', 'Kondisi/jumlah', 'Nilai sementara'], kolomE,
+    (l.barangAset || []).map((a, i) => [String(i + 1), a.nama || '-', a.id || '-', a.kondisi || '-', kjFormatAngka(a.nilai)]));
+
+  y += 5;
+  judul('F. BUKTI/LAMPIRAN AWAL');
+  tabelBerulang(['No', 'Jenis/deskripsi', 'Sumber/lokasi', 'Diserahkan kepada & waktu'], [0.06, 0.32, 0.3, 0.32],
+    (l.buktiLampiran || []).map((b, i) => [String(i + 1), b.jenis || '-', b.sumber || '-', (b.kepada || '-') + ' / ' + (b.waktu ? kjFmtWaktu(b.waktu) : '-')]));
+
+  y += 5;
+  judul('G. PERNYATAAN & SERAH-TERIMA PELAKSANA');
+  await tabelFoto(l.dokumentasi || []);
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(90, 90, 90);
+  const pernyataanLines = doc.splitTextToSize('Saya menyatakan laporan di atas saya tulis berdasarkan apa yang saya ketahui dan lakukan, tanpa menambah dugaan sebagai fakta. Kondisi/lokasi telah saya serahkan kepada Danru sebagaimana dicatat.', lebar);
+  cekPage(pernyataanLines.length * 3.6 + 4);
+  doc.text(pernyataanLines, kiri, y + 3); y += pernyataanLines.length * 3.6 + 6;
+  signatureRow([
+    { judul: 'Pelaksana/Pembuat laporan', nama: l.namaPelaksanaSerah, waktu: kjFmtWaktu(l.waktuSerah) },
+    { judul: 'Danru penerima kendali', nama: l.namaDanruAwal, waktu: '-' },
+  ]);
+
+  if (tingkat === 'A-I' || tingkat === 'A-K') {
+    y += 5;
+    judul('H. VERIFIKASI DAN TINDAKAN DANRU');
+    baris2Kolom('Waktu menerima laporan', kjFmtWaktu(l.waktuTerimaDanru), 'Waktu tiba/ambil kendali', kjFmtWaktu(l.waktuTibaDanru));
+    checklistBaris('Klasifikasi setelah verifikasi', ['Merah', 'Oranye', 'Kuning', 'Hijau'], l.klasifikasiDanru);
+    baris2Kolom('Perubahan dari level awal', l.perubahanLevel, 'Status lokasi', l.statusLokasi);
+    baris2Kolom('Personel tambahan', l.personelTambahan, null, null);
+    baris2Kolom('Hasil verifikasi Danru', l.hasilVerifikasi, null, null);
+    tabelBerulang(['No', 'Waktu', 'Perintah/tindakan Danru & hasilnya'], [0.08, 0.14, 0.78],
+      (l.tindakanDanru || []).map((t, i) => [String(i + 1), t.waktu || '-', t.isi || '-']));
+
+    y += 5;
+    judul('I. ESKALASI DAN SERAH-TERIMA DANRU');
+    baris2Kolom('Komandan Peleton (Danton)', 'Nama: ' + (l.namaKoordEskalasi || '-') + '\nWaktu: ' + (l.waktuKoordEskalasi || '-') + '\nArahan: ' + (l.arahanKoordEskalasi || '-'),
+      'PIC/Manajemen', 'Nama: ' + (l.namaPicEskalasi || '-') + '\nWaktu: ' + (l.waktuPicEskalasi || '-') + '\nArahan: ' + (l.arahanPicEskalasi || '-'));
+    checklistBaris('Eksternal dihubungi', ['Tidak ada', 'Polisi', 'Damkar', 'Medis', { val: 'Lainnya', label: 'Lainnya' }], l.eksternalEskalasi);
+    baris2Kolom('No. laporan/petugas eksternal', l.noLaporanEksternal, null, null);
+    checklistBaris('Status bukti/CCTV', ['Sudah diamankan', 'Proses', 'Tidak ada', { val: 'Lainnya', label: 'Terkendala' }], l.statusBukti);
+    signatureRow([
+      { judul: 'Danru/Pemeriksa awal', nama: l.namaDanruAkhir, waktu: kjFmtWaktu(l.waktuSerahDanru) },
+      { judul: 'Danton penerima kendali', nama: l.namaKoordEskalasi, waktu: '-' },
+    ]);
+  }
+  if (tingkat === 'A-K') {
+    y += 5;
+    judul('J. TELAAH DAN KEPUTUSAN KOMANDAN PELETON');
+    checklistBaris('Level final sementara', ['Merah', 'Oranye', 'Kuning', 'Hijau'], l.levelFinal);
+    checklistBaris('Investigasi internal', ['Tidak diperlukan', { val: 'Lainnya', label: 'Diperlukan' }], l.investigasi);
+    checklistBaris('SO/rekonsiliasi', ['Tidak', { val: 'Lainnya', label: 'Ya' }], l.rekonsiliasi);
+    checklistBaris('Wawancara/klarifikasi', ['Tidak', { val: 'Lainnya', label: 'Ya' }], l.wawancara);
+    checklistBaris('Pelaporan eksternal', ['Tidak', 'Polisi', 'Damkar', 'K3', { val: 'Lainnya', label: 'Lainnya' }], l.pelaporanEks);
+    checklistBaris('Pengamanan lanjutan', ['Tidak ada', 'Tambah personel', 'Tutup area', 'Simpan bukti', 'Pantau CCTV', { val: 'Lainnya', label: 'Lainnya' }], l.pengamananLanjut);
+    checklistBaris('LHII', ['Tidak', 'Awal 1x24 jam', 'Final 3x24 jam', { val: 'Lainnya', label: 'Tenggat lain' }], l.lhii);
+    baris2Kolom('Catatan Danton', l.catatanKoord, null, null);
+
+    y += 5;
+    judul('K. DISTRIBUSI DAN STATUS');
+    baris2Kolom('Distribusi', l.distribusiLaporan, null, null);
+    checklistBaris('Status laporan', ['Terkendali/monitor', 'Investigasi berjalan', 'Diserahkan pihak berwenang', 'Siap ditutup'], l.statusAkhirLaporan);
+    signatureRow([
+      { judul: 'Komandan Peleton Satpam', nama: l.namaTtdKoord, waktu: kjFmtWaktu(l.waktuTtdKoord) },
+      { judul: 'PIC/Pejabat pengguna jasa', nama: l.namaTtdPic, waktu: '-' },
+      { judul: 'Penerima lain (bila ada)', nama: l.namaTtdLain, waktu: '-' },
+    ]);
+  }
+  doc.save('Laporan_' + String(l.nomorKejadian || 'kejadian').replace(/[^a-zA-Z0-9]+/g, '_') + '_' + tingkat + '.pdf');
+}
+
+async function muatRiwayatPatroliDetail() {
+  const tbody = document.getElementById('patroli-detail-table');
+  const res = await api('daftarPatroliDetailAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) { tbody.innerHTML = '<tr><td colspan="7" class="muted">' + res.pesan + '</td></tr>'; return; }
+  const daftar = res.daftar || [];
+  const renderBaris = r =>
+    '<tr>' +
+      '<td class="mono">' + r.tanggal + '</td>' +
+      '<td>' + namaStatusHtml(r.nama, r.status) + '</td>' +
+      '<td>' + r.namaPos + '</td>' +
+      '<td class="mono">' + r.waktu + '</td>' +
+      '<td class="mono">' + (r.akurasi != null ? ('±' + r.akurasi + ' m') : '-') + '</td>' +
+      '<td>' + (r.catatan || '-') + '</td>' +
+      '<td>' + (r.fotoUrl ? '<a href="' + r.fotoUrl + '" target="_blank" rel="noopener"><img class="foto-thumb" src="' + r.fotoUrl + '" alt="Foto patroli ' + r.nama + '" loading="lazy"></a>' : '-') + '</td>' +
+    '</tr>';
+  tbody.innerHTML = daftar.length ? gabungDenganPemisah(daftar, 7, renderBaris, 'Karyawan Nonaktif') : '<tr><td colspan="7" class="muted">Belum ada data patroli pada periode ini.</td></tr>';
+}
+
+async function muatRiwayatKegiatanDetail() {
+  const tbody = document.getElementById('cleaning-detail-table');
+  const res = await api('daftarKegiatanDetailAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) { tbody.innerHTML = '<tr><td colspan="9" class="muted">' + res.pesan + '</td></tr>'; return; }
+  const daftar = res.daftar || [];
+  const renderBaris = r =>
+    '<tr>' +
+      '<td class="mono">' + r.tanggal + '</td>' +
+      '<td>' + namaStatusHtml(r.nama, r.status) + '</td>' +
+      '<td>' + r.tugas + '</td>' +
+      '<td>' + r.area + '</td>' +
+      '<td class="mono">' + r.waktu + '</td>' +
+      '<td class="mono">' + (r.akurasi != null ? ('±' + r.akurasi + ' m') : '-') + '</td>' +
+      '<td>' + (r.catatan || '-') + '</td>' +
+      '<td>' + (r.fotoSebelumUrl ? '<a href="' + r.fotoSebelumUrl + '" target="_blank" rel="noopener"><img class="foto-thumb" src="' + r.fotoSebelumUrl + '" alt="Foto sebelum ' + r.nama + '" loading="lazy"></a>' : '-') + '</td>' +
+      '<td>' + (r.fotoSesudahUrl ? '<a href="' + r.fotoSesudahUrl + '" target="_blank" rel="noopener"><img class="foto-thumb" src="' + r.fotoSesudahUrl + '" alt="Foto sesudah ' + r.nama + '" loading="lazy"></a>' : '-') + '</td>' +
+    '</tr>';
+  tbody.innerHTML = daftar.length ? gabungDenganPemisah(daftar, 9, renderBaris, 'Karyawan Nonaktif') : '<tr><td colspan="9" class="muted">Belum ada data kegiatan pada periode ini.</td></tr>';
+}
+
+async function muatRiwayatAbsensiDetail() {
+  const tbody = document.getElementById('absensi-detail-table');
+  const res = await api('daftarAbsensiDetailAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) { tbody.innerHTML = '<tr><td colspan="12" class="muted">' + res.pesan + '</td></tr>'; return; }
+  const daftar = res.daftar || [];
+  const renderBaris = r =>
+    '<tr>' +
+      '<td class="mono">' + r.tanggal + '</td>' +
+      '<td>' + namaStatusHtml(r.nama, r.status) + '</td>' +
+      '<td class="muted">' + r.bagianKerja + '</td>' +
+      '<td class="mono">' + (r.jamMasuk || '-') + '</td>' +
+      '<td>' + (r.menitTelat === null ? '-' : (r.menitTelat === 0 ? '<span class="muted">Tepat waktu</span>' : '<b style="color:var(--red);">' + r.menitTelat + ' menit</b>')) + '</td>' +
+      '<td>' + (r.jarakMasuk !== null ? (r.jarakMasuk + ' m dari ' + r.namaLokasiMasuk) : '-') + '</td>' +
+      '<td class="mono">' + (r.akurasiMasuk != null ? ('±' + r.akurasiMasuk + ' m') : '-') + '</td>' +
+      '<td>' + (r.fotoMasukUrl ? '<a href="' + r.fotoMasukUrl + '" target="_blank" rel="noopener"><img class="foto-thumb" src="' + r.fotoMasukUrl + '" alt="Foto masuk ' + r.nama + '" loading="lazy"></a>' : '-') + '</td>' +
+      '<td class="mono">' + (r.jamKeluar || '-') + '</td>' +
+      '<td>' + (r.jarakKeluar !== null ? (r.jarakKeluar + ' m dari ' + r.namaLokasiKeluar) : '-') + '</td>' +
+      '<td class="mono">' + (r.akurasiKeluar != null ? ('±' + r.akurasiKeluar + ' m') : '-') + '</td>' +
+      '<td>' + (r.fotoKeluarUrl ? '<a href="' + r.fotoKeluarUrl + '" target="_blank" rel="noopener"><img class="foto-thumb" src="' + r.fotoKeluarUrl + '" alt="Foto keluar ' + r.nama + '" loading="lazy"></a>' : '-') + '</td>' +
+    '</tr>';
+  tbody.innerHTML = daftar.length ? gabungDenganPemisah(daftar, 12, renderBaris, 'Karyawan Nonaktif') : '<tr><td colspan="12" class="muted">Belum ada data absensi pada periode ini.</td></tr>';
+}
+
+function statTile(num, label) {
+  return '<div class="stat-tile"><div class="num">' + num + '</div><div class="lb">' + label + '</div></div>';
+}
+
+// Dipakai di semua tabel yang menampilkan nama karyawan (Kelola Data, Dashboard
+// Absensi/Patroli/Cleaning, Penilaian & Evaluasi, Riwayat Detail) supaya
+// karyawan yang sudah dinonaktifkan (misal sudah keluar kerja) langsung terlihat
+// beda tanpa harus buka tab Kelola Data - teks merah + ikon 🚫, histori lamanya
+// tetap tampil apa adanya, cuma ditandai.
+function namaStatusHtml(nama, status) {
+  return status === 'nonaktif'
+    ? '<span class="nama-nonaktif" title="Karyawan nonaktif">🚫 ' + nama + '</span>'
+    : nama;
+}
+
+// Semua tabel yang menampilkan daftar per-karyawan dikelompokkan jadi dua blok
+// terpisah (Aktif di atas, Nonaktif di bawah) dengan baris pemisah di antaranya,
+// bukan dicampur urut abjad/angka seperti biasa - supaya karyawan yang sudah
+// keluar kerja jelas terpisah di semua halaman (dashboard, penilaian, dst),
+// bukan cuma ditandai warna saja.
+function gabungDenganPemisah(daftar, colspan, renderBaris, labelNonaktif) {
+  const aktif = daftar.filter(d => d.status !== 'nonaktif');
+  const nonaktif = daftar.filter(d => d.status === 'nonaktif');
+  let html = aktif.map(renderBaris).join('');
+  if (nonaktif.length) {
+    html += '<tr class="group-sep"><td colspan="' + colspan + '">' + (labelNonaktif || 'Karyawan Nonaktif') + '</td></tr>';
+    html += nonaktif.map(renderBaris).join('');
+  }
+  return html;
+}
+
+async function ubahStatusKaryawan(id, statusBaru) {
+  const res = await api('ubahStatusKaryawan', { password: adminPassword, id, status: statusBaru });
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) muatKelola('karyawan');
+}
+
+async function muatDashboardAbsensi() {
+  const res = await api('ambilDashboardKPI', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) return showToast(res.pesan, false);
+  const kpi = res.kpi;
+  const r = kpi.ringkasan;
+  document.getElementById('absensi-stats').innerHTML =
+    statTile(r.totalKaryawanAktif, 'Karyawan Aktif') +
+    statTile(r.totalKaryawanNonaktif, 'Karyawan Nonaktif') +
+    statTile(r.totalHadir, 'Total Hadir') +
+    statTile(r.totalTelat, 'Total Telat') +
+    statTile(r.totalIjin, 'Ijin Disetujui') +
+    statTile(r.rataRataKehadiran + '%', 'Rata-rata Kehadiran');
+
+  const maxVal = Math.max(1, ...kpi.grafik.flatMap(g => [g.hadir, g.telat, g.ijin]));
+  document.getElementById('absensi-chart').innerHTML = kpi.grafik.map(g =>
+    '<div class="bar-group">' +
+      '<div class="bars">' +
+        '<div class="b hadir" style="height:' + (g.hadir/maxVal*130) + 'px" title="Hadir: '+g.hadir+'"></div>' +
+        '<div class="b telat" style="height:' + (g.telat/maxVal*130) + 'px" title="Telat: '+g.telat+'"></div>' +
+        '<div class="b ijin" style="height:' + (g.ijin/maxVal*130) + 'px" title="Ijin: '+g.ijin+'"></div>' +
+      '</div>' +
+      '<div class="lb">' + g.label + '</div>' +
+    '</div>'
+  ).join('');
+
+  const renderBarisAbsensi = k =>
+    '<tr><td>'+namaStatusHtml(k.nama, k.status)+'</td><td class="muted">'+k.bagianKerja+'</td>' +
+    '<td class="num">'+k.hadir+'</td><td class="num">'+k.telat+'</td><td class="num">'+k.ijin+'</td>' +
+    '<td class="num">'+k.persenKehadiran+'%</td></tr>';
+  document.getElementById('absensi-table').innerHTML = kpi.perKaryawan.length
+    ? gabungDenganPemisah(kpi.perKaryawan, 6, renderBarisAbsensi, 'Karyawan Nonaktif')
+    : '<tr><td colspan="6" class="muted">Tidak ada data.</td></tr>';
+}
+
+// Urutan baris Matriks Kehadiran: Security, Cleaning Service, Administrasi,
+// Pengemudi dulu (disepakati user 2026-11-10), bagian kerja lain yang belum
+// disebut ditaruh di belakang urut abjad. Berlaku untuk semua klien, bukan
+// cuma KEMENAG PROV JATENG (beda dari rekap Excel template HWI di atas).
+const URUTAN_BAGIAN_MATRIKS = ['Security', 'Cleaning Service', 'Administrasi', 'Pengemudi'];
+function peringkatBagianMatriks(bagianKerja) {
+  const idx = URUTAN_BAGIAN_MATRIKS.indexOf(bagianKerja);
+  return idx === -1 ? 99 : idx;
+}
+
+// Header tabel Matriks (NAMA/BAGIAN/tanggal/Masuk-Keluar, 2 baris) harus
+// tetap kelihatan pas kotak .matriks-scroll di-scroll ke bawah. Baris 1
+// nempel top:0 lewat CSS; baris 2 digeser JS sebesar tinggi baris 1 (nggak
+// bisa hardcode px karena tinggi baris tergantung font/zoom browser).
+function aturStickyHeaderMatriks() {
+  const thead = document.getElementById('absensi-matriks-thead');
+  if (!thead || !thead.rows.length || !thead.rows[1]) return;
+  const tinggiBaris1 = thead.rows[0].offsetHeight;
+  Array.from(thead.rows[1].cells).forEach(c => { c.style.top = tinggiBaris1 + 'px'; });
+}
+window.addEventListener('resize', aturStickyHeaderMatriks);
+
+async function muatMatriksAbsensi() {
+  const thead = document.getElementById('absensi-matriks-thead');
+  const tbody = document.getElementById('absensi-matriks-tbody');
+  tbody.innerHTML = '<tr><td class="muted">Memuat...</td></tr>';
+
+  const [resKaryawan, resAbsensi, resIjin] = await Promise.all([
+    api('getDaftarKaryawanAdmin', { password: adminPassword }),
+    api('daftarAbsensiDetailAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun }),
+    api('daftarIjinDisetujuiPeriodeAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun }),
+  ]);
+  if (!resKaryawan.sukses) return showToast(resKaryawan.pesan, false);
+  if (!resAbsensi.sukses) return showToast(resAbsensi.pesan, false);
+  if (!resIjin.sukses) return showToast(resIjin.pesan, false);
+
+  const daftarKaryawan = (resKaryawan.daftar || [])
+    .sort((a, b) => peringkatBagianMatriks(a.bagianKerja) - peringkatBagianMatriks(b.bagianKerja)
+      || a.bagianKerja.localeCompare(b.bagianKerja) || a.nama.localeCompare(b.nama));
+
+  const absensiMap = {};
+  (resAbsensi.daftar || []).forEach(r => { absensiMap[r.nama + '|' + r.tanggal] = r; });
+  const ijinSet = new Set();
+  (resIjin.daftar || []).forEach(r => { ijinSet.add(r.nama + '|' + r.tanggalIjin); });
+
+  const jumlahHari = new Date(filterTahun, filterBulan, 0).getDate();
+  const tanggalList = Array.from({ length: jumlahHari }, (_, i) => i + 1);
+
+  // table-layout:fixed + colgroup eksplisit supaya lebar tiap kolom tanggal
+  // sama persis (sebelumnya kolom tanggal 01 melebar sendiri karena auto
+  // table layout browser tidak membagi rata sisa lebar antar 60+ kolom).
+  document.getElementById('absensi-matriks-colgroup').innerHTML =
+    '<col style="width:180px"><col style="width:120px">' +
+    tanggalList.map(() => '<col style="width:70px"><col style="width:70px">').join('');
+
+  thead.innerHTML =
+    '<tr><th rowspan="2">Nama</th><th rowspan="2">Bagian</th>' +
+      tanggalList.map(d => '<th colspan="2">' + String(d).padStart(2, '0') + '</th>').join('') +
+    '</tr><tr>' +
+      tanggalList.map(() => '<th>Masuk</th><th>Keluar</th>').join('') +
+    '</tr>';
+  aturStickyHeaderMatriks();
+
+  const totalKolom = 2 + tanggalList.length * 2;
+  // Selalu render 2 <td> terpisah per tanggal (bukan colspan=2 pas kosong) -
+  // supaya posisi nth-child tiap baris konsisten, karena garis pemisah tegas
+  // antar tanggal di CSS pakai selector nth-child(2n) yang butuh jumlah <td>
+  // sama rata di semua baris (colspan dihitung 1 anak DOM, bikin nth-child
+  // tiap baris geser beda-beda kalau dicampur).
+  const renderBarisMatriks = k => {
+    const sel = tanggalList.map(d => {
+      const tgl = filterTahun + '-' + String(filterBulan).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const r = absensiMap[k.nama + '|' + tgl];
+      if (r && r.jamMasuk) return '<td class="mono">' + r.jamMasuk + '</td><td class="mono">' + (r.jamKeluar || '-') + '</td>';
+      if (ijinSet.has(k.nama + '|' + tgl)) return '<td class="sel-ijin">IJIN</td><td class="sel-ijin"></td>';
+      return '<td class="sel-alpa" title="Tidak ada absen (Alpa)"></td><td class="sel-alpa"></td>';
+    }).join('');
+    return '<tr><td title="' + k.nama + '">' + namaStatusHtml(k.nama, k.status) + '</td><td class="muted" title="' + k.bagianKerja + '">' + k.bagianKerja + '</td>' + sel + '</tr>';
+  };
+  tbody.innerHTML = daftarKaryawan.length
+    ? gabungDenganPemisah(daftarKaryawan, totalKolom, renderBarisMatriks, 'Karyawan Nonaktif')
+    : '<tr><td colspan="' + totalKolom + '" class="muted">Tidak ada data.</td></tr>';
+}
+
+async function muatDashboardOperasional(action, statsId, tableId) {
+  const res = await api(action, { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  if (!res.sukses) return showToast(res.pesan, false);
+  const kpi = res.kpi;
+  document.getElementById(statsId).innerHTML =
+    statTile(kpi.totalStafAktif, 'Staf Aktif') +
+    statTile(kpi.totalStafNonaktif, 'Staf Nonaktif') +
+    statTile(kpi.hariKerja, 'Hari Kerja Berjalan');
+  const renderBarisOperasional = s =>
+    '<tr><td>'+namaStatusHtml(s.nama, s.status)+'</td><td class="num">'+s.jumlahLapor+'</td><td class="num">'+s.rataRataPerHari+'</td><td class="mono">'+s.terakhirLapor+'</td></tr>';
+  document.getElementById(tableId).innerHTML = kpi.perStaf.length
+    ? gabungDenganPemisah(kpi.perStaf, 4, renderBarisOperasional, 'Karyawan Nonaktif')
+    : '<tr><td colspan="4" class="muted">Belum ada staf terdaftar untuk divisi ini.</td></tr>';
+}
+
+function jamSekarangID() {
+  return new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function geserTanggalHarian(jenis, delta) {
+  const idInput = jenis === 'absensi' ? 'absensi-harian-tanggal' : 'patroli-harian-tanggal';
+  const skrg = jenis === 'absensi' ? tanggalHarianAbsensi : tanggalHarianPatroli;
+  const d = new Date(skrg + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  const baru = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  if (jenis === 'absensi') { tanggalHarianAbsensi = baru; muatRingkasanHarianAbsensi(); }
+  else { tanggalHarianPatroli = baru; muatRingkasanHarianPatroli(); }
+}
+
+async function muatRingkasanHarianAbsensi() {
+  document.getElementById('absensi-harian-tanggal').value = tanggalHarianAbsensi;
+  const res = await api('ambilRingkasanHarianAbsensi', { password: adminPassword, tanggal: tanggalHarianAbsensi });
+  if (!res.sukses) return showToast(res.pesan, false);
+  const r = res.ringkasan;
+  document.getElementById('absensi-harian-stats').innerHTML =
+    statTile(r.jumlahAbsen, 'Absen') +
+    statTile(r.jumlahTidakAbsen, 'Tidak Absen');
+  document.getElementById('absensi-harian-info').textContent =
+    'Tanggal ' + formatTglID(tanggalHarianAbsensi) + ' · Diperbarui pukul ' + jamSekarangID();
+}
+
+async function muatRingkasanHarianPatroli() {
+  document.getElementById('patroli-harian-tanggal').value = tanggalHarianPatroli;
+  const res = await api('ambilRingkasanHarianPatroli', { password: adminPassword, tanggal: tanggalHarianPatroli });
+  if (!res.sukses) return showToast(res.pesan, false);
+  const r = res.ringkasan;
+  document.getElementById('patroli-harian-stats').innerHTML =
+    statTile(r.jumlahTitik, 'Titik Dilaporkan');
+  document.getElementById('patroli-harian-info').textContent =
+    'Tanggal ' + formatTglID(tanggalHarianPatroli) + ' · Diperbarui pukul ' + jamSekarangID();
+}
+
+document.getElementById('absensi-harian-prev').addEventListener('click', () => geserTanggalHarian('absensi', -1));
+document.getElementById('absensi-harian-next').addEventListener('click', () => geserTanggalHarian('absensi', 1));
+document.getElementById('absensi-harian-tanggal').addEventListener('change', (e) => {
+  if (!e.target.value) return;
+  tanggalHarianAbsensi = e.target.value;
+  muatRingkasanHarianAbsensi();
+});
+document.getElementById('patroli-harian-prev').addEventListener('click', () => geserTanggalHarian('patroli', -1));
+document.getElementById('patroli-harian-next').addEventListener('click', () => geserTanggalHarian('patroli', 1));
+document.getElementById('patroli-harian-tanggal').addEventListener('change', (e) => {
+  if (!e.target.value) return;
+  tanggalHarianPatroli = e.target.value;
+  muatRingkasanHarianPatroli();
+});
+
+function kpiBadge(text, tercapai) {
+  return '<span class="kpi-badge ' + (tercapai ? 'ok' : 'bad') + '">' + text + '</span>';
+}
+
+function formatTglID(iso) {
+  if (!iso) return '-';
+  const [y, m, d] = iso.split('-');
+  return d + '/' + m + '/' + y;
+}
+
+async function muatPenilaian() {
+  const bagian = document.getElementById('penilaian-bagian').value;
+  const tglAwal = document.getElementById('penilaian-tgl-awal').value;
+  const tglAkhir = document.getElementById('penilaian-tgl-akhir').value;
+  const pakaiRentangKustom = !!(tglAwal && tglAkhir && tglAwal <= tglAkhir);
+  const params = { password: adminPassword, bulan: filterBulan, tahun: filterTahun, bagianKerja: bagian };
+  if (pakaiRentangKustom) { params.tanggalAwal = tglAwal; params.tanggalAkhir = tglAkhir; }
+  const info = document.getElementById('penilaian-rentang-aktif');
+  if (tglAwal && tglAkhir && !pakaiRentangKustom) {
+    info.textContent = '⚠️ Tanggal awal harus sebelum/sama dengan tanggal akhir. Masih memakai filter Bulan/Tahun.';
+  } else {
+    info.textContent = pakaiRentangKustom
+      ? 'Menampilkan rentang kustom: ' + formatTglID(tglAwal) + ' – ' + formatTglID(tglAkhir)
+      : '';
+  }
+  const res = await api('ambilPenilaianKPI', params);
+  if (!res.sukses) return showToast(res.pesan, false);
+  const kpi = res.kpi;
+
+  const renderBarisPenilaianAbsensi = s =>
+    '<tr>' +
+      '<td>' + namaStatusHtml(s.nama, s.status) + '</td>' +
+      '<td class="num">' + kpiBadge(s.persenKehadiran + '%', s.persenKehadiran >= 95) + '</td>' +
+      '<td class="num">' + kpiBadge(s.tepatWaktu + '%', s.tepatWaktu >= 95) + '</td>' +
+      '<td class="num">' + kpiBadge(s.rataRataTelat + ' menit', s.rataRataTelat < 10) + '</td>' +
+      '<td class="num">' + kpiBadge(s.mangkir + ' hari', s.mangkir === 0) + '</td>' +
+      '<td class="num">' + kpiBadge(s.geofencing + '%', s.geofencing === 100) + '</td>' +
+      '<td class="num">' + kpiBadge('Rp ' + s.totalPotongan.toLocaleString('id-ID'), s.totalPotongan === 0) + '</td>' +
+    '</tr>';
+  document.getElementById('penilaian-absensi-table').innerHTML = kpi.perStaf.length
+    ? gabungDenganPemisah(kpi.perStaf, 7, renderBarisPenilaianAbsensi, 'Karyawan Nonaktif')
+    : '<tr><td colspan="7" class="muted">Belum ada staf di bagian kerja ini.</td></tr>';
+
+  const panelPatroli = document.getElementById('penilaian-patroli-panel');
+  if (bagian === 'Security') {
+    panelPatroli.classList.remove('hidden');
+    const c = kpi.cakupanPatroli;
+    document.getElementById('penilaian-cakupan-patroli').innerHTML = c
+      ? '<div class="stat-tile" style="margin-bottom:14px; border-left-color:' + (c.persentase >= 100 ? 'var(--green)' : 'var(--navy)') + ';">' +
+          '<div class="num">' + c.persentase + '%</div>' +
+          '<div class="lb">Cakupan Rute Patroli (gabungan semua petugas) — ' + c.totalCheckpoint + ' titik &times; ' + c.totalHariKalender + ' hari = target ' + (c.totalCheckpoint * c.totalHariKalender) + ', tercapai ' + c.sumCakupanHarian + '</div>' +
+        '</div>'
+      : '';
+    const perStafPatroli = kpi.perStafPatroli || [];
+    const renderBarisPenilaianPatroli = s =>
+      '<tr>' +
+        '<td>' + namaStatusHtml(s.nama, s.status) + '</td>' +
+        '<td class="num">' + kpiBadge(s.checkpointDiscan + '/' + s.totalCheckpoint + ' (' + s.ketepatanRute + '%)', s.ketepatanRute === 100) + '</td>' +
+        '<td class="num">' + (s.rataRataInterval != null ? kpiBadge(s.rataRataInterval + ' menit', s.rataRataInterval <= 120) : '<span class="muted">-</span>') + '</td>' +
+        '<td class="num">' + kpiBadge(s.kelengkapanDokumentasi + '%', s.kelengkapanDokumentasi === 100) + '</td>' +
+      '</tr>';
+    document.getElementById('penilaian-patroli-table').innerHTML = perStafPatroli.length
+      ? gabungDenganPemisah(perStafPatroli, 4, renderBarisPenilaianPatroli, 'Karyawan Nonaktif')
+      : '<tr><td colspan="4" class="muted">Belum ada laporan patroli pada periode ini.</td></tr>';
+  } else {
+    panelPatroli.classList.add('hidden');
+  }
+}
+document.getElementById('penilaian-bagian').addEventListener('change', muatPenilaian);
+
+// Dropdown "Bagian Kerja" di atas defaultnya "Security" (opsi pertama di <select>),
+// jadi klien yang stafnya semua Cleaning Service (atau bagian lain) akan selalu
+// lihat "Belum ada staf di bagian kerja ini." sampai mereka ganti dropdown manual.
+// Sekali per sesi/klien aktif, cek diam-diam bagian mana yang beneran ada stafnya
+// dan pindahkan dropdown ke situ (tidak mengganggu kalau user sudah pilih manual).
+let bagianPenilaianDiatur = false;
+async function aturBagianPenilaianDefault() {
+  if (bagianPenilaianDiatur) return;
+  bagianPenilaianDiatur = true;
+  try {
+    const res = await api('getDaftarKaryawanAdmin', { password: adminPassword });
+    if (!res.sukses) return;
+    const hitung = {};
+    for (const k of (res.daftar || [])) {
+      if (k.status === 'nonaktif') continue;
+      hitung[k.bagianKerja] = (hitung[k.bagianKerja] || 0) + 1;
+    }
+    if (!hitung['Security'] && Object.keys(hitung).length) {
+      const terbanyak = Object.entries(hitung).sort((a, b) => b[1] - a[1])[0][0];
+      const sel = document.getElementById('penilaian-bagian');
+      if (sel && [...sel.options].some(o => o.value === terbanyak)) sel.value = terbanyak;
+    }
+  } catch (e) { /* abaikan, biarkan default Security */ }
+}
+
+async function muatPersetujuan() {
+  if (!peran) return;
+  const [resDaftar, resIjin] = await Promise.all([
+    api('daftarPendaftaranBaru', { password: adminPassword }),
+    api('daftarIjinAdmin', { password: adminPassword })
+  ]);
+  renderPendaftaran(resDaftar.daftar || []);
+  renderIjin(resIjin.daftar || []);
+}
+
+// Pilihan Jabatan saat Setujui pendaftaran khusus klien yang pakai fitur Slip
+// Gaji (lihat KLIEN_SLIP_GAJI_DIIZINKAN) - kalau dibiarkan kosong, default
+// "Anggota" (lihat prosesPendaftaran & backend setujuiPendaftaran).
+function renderPendaftaran(list) {
+  const box = document.getElementById('sub-pendaftaran');
+  if (!list.length) { box.innerHTML = '<div class="empty-state"><div class="big">✅</div>Tidak ada pendaftaran menunggu persetujuan.</div>'; return; }
+  const pakaiJabatan = KLIEN_SLIP_GAJI_DIIZINKAN.includes(KODE_KLIEN);
+  box.innerHTML = list.map(d =>
+    '<div class="approval-item">' +
+      '<div class="row"><span class="k">Nama</span><span>'+d.nama+'</span></div>' +
+      '<div class="row"><span class="k">Bagian Kerja</span><span>'+d.bagianKerja+'</span></div>' +
+      '<div class="row"><span class="k">PIN</span><span class="mono">'+d.pin+'</span></div>' +
+      '<div class="row"><span class="k">Tanggal Daftar</span><span class="mono">'+d.tanggalDaftar+'</span></div>' +
+      (pakaiJabatan ?
+        '<div class="row"><span class="k">Jabatan</span><select id="jabatan-pendaftaran-'+d.id+'">' +
+          '<option value="">(kosongkan = Anggota)</option>' +
+          '<option value="Komandan Peleton (Danton)">Komandan Peleton (Danton)</option>' +
+          '<option value="Wakil Komandan Peleton (Wadanton)">Wakil Komandan Peleton (Wadanton)</option>' +
+          '<option value="Komandan Regu (Danru)">Komandan Regu (Danru)</option>' +
+          '<option value="Anggota">Anggota</option>' +
+        '</select></div>' : '') +
+      '<div class="actions">' +
+        '<button class="btn btn-green btn-sm" onclick="prosesPendaftaran(\''+d.id+'\',true)">Setujui</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="prosesPendaftaran(\''+d.id+'\',false)">Tolak</button>' +
+      '</div>' +
+    '</div>'
+  ).join('');
+}
+function renderIjin(list) {
+  const box = document.getElementById('sub-ijin');
+  if (!list.length) { box.innerHTML = '<div class="empty-state"><div class="big">✅</div>Tidak ada pengajuan ijin menunggu persetujuan.</div>'; return; }
+  box.innerHTML = list.map(d =>
+    '<div class="approval-item">' +
+      '<div class="row"><span class="k">Nama</span><span>'+d.nama+'</span></div>' +
+      '<div class="row"><span class="k">Jenis</span><span>'+d.jenisIjin+'</span></div>' +
+      '<div class="row"><span class="k">Tanggal Ijin</span><span class="mono">'+d.tanggalIjin+'</span></div>' +
+      '<div class="row"><span class="k">Keterangan</span><span>'+(d.keterangan||'-')+'</span></div>' +
+      '<div class="row"><span class="k">Bukti</span><a href="'+d.linkBukti+'" target="_blank" rel="noopener">Lihat File</a></div>' +
+      '<div class="actions">' +
+        '<button class="btn btn-green btn-sm" onclick="prosesIjin(\''+d.id+'\',true)">Setujui</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="prosesIjin(\''+d.id+'\',false)">Tolak</button>' +
+      '</div>' +
+    '</div>'
+  ).join('');
+}
+async function prosesPendaftaran(id, setujui) {
+  const payload = { password: adminPassword, id };
+  if (setujui) {
+    const elJabatan = document.getElementById('jabatan-pendaftaran-' + id);
+    if (elJabatan) payload.jabatan = elJabatan.value;
+  }
+  const res = await api(setujui ? 'setujuiPendaftaran' : 'tolakPendaftaran', payload);
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) muatPersetujuan();
+}
+async function prosesIjin(id, setujui) {
+  const res = await api(setujui ? 'setujuiIjin' : 'tolakIjin', { password: adminPassword, id });
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) muatPersetujuan();
+}
+
+const ENTITAS_KELOLA = {
+  karyawan: {
+    title: 'Karyawan',
+    listAction: 'getDaftarKaryawanAdmin', addAction: 'tambahKaryawanAdmin',
+    editAction: 'editKaryawanAdmin', delAction: 'hapusKaryawanAdmin',
+    fields: [
+      { key: 'nama', label: 'Nama', type: 'text' },
+      { key: 'fotoUrl', label: 'Foto Karyawan', type: 'foto' },
+      { key: 'noHp', label: 'No HP (opsional)', type: 'text' },
+      { key: 'alamat', label: 'Alamat (opsional)', type: 'text' },
+      { key: 'bagianKerja', label: 'Bagian Kerja', type: 'select', options: ['Security','Cleaning Service','Administrasi','Pengemudi','Tenaga Lapangan','Tenaga Produksi','Tenaga Operator','Lainnya'] },
+      // Jabatan & Departemen khusus klien yang pakai fitur Slip Gaji (lihat
+      // KLIEN_SLIP_GAJI_DIIZINKAN) - admin yang menentukan di sini, bisa
+      // diubah kapan saja (Jabatan tidak cuma saat Setujui pendaftaran).
+      // Keduanya dipakai karyawan sendiri untuk melihat slip gajinya lewat
+      // index.html (cocokkan ke template Pengaturan Slip Gaji yang sesuai).
+      ...(KLIEN_SLIP_GAJI_DIIZINKAN.includes(KODE_KLIEN) ? [
+        { key: 'jabatan', label: 'Jabatan', type: 'select', options: ['Komandan Peleton (Danton)', 'Wakil Komandan Peleton (Wadanton)', 'Komandan Regu (Danru)', 'Anggota'] },
+        { key: 'departemen', label: 'Departemen', type: 'select', options: ['Keamanan', 'Kebersihan', 'Administrasi', 'Pengemudi'] }
+      ] : []),
+      { key: 'pin', label: 'PIN (4 digit)', type: 'text' }
+    ]
+  },
+  lokasi: {
+    title: 'Lokasi Absensi',
+    listAction: 'getDaftarLokasiAdmin', addAction: 'tambahLokasiAdmin',
+    editAction: 'editLokasiAdmin', delAction: 'hapusLokasiAdmin',
+    fields: [
+      { key: 'nama', label: 'Nama Lokasi', type: 'text' },
+      { key: 'lat', label: 'Latitude', type: 'text' },
+      { key: 'lng', label: 'Longitude', type: 'text' },
+      { key: 'radius', label: 'Radius', type: 'number' },
+      { key: 'satuan', label: 'Satuan Radius', type: 'select', options: ['Meter','KM'] }
+    ]
+  },
+  patroli: {
+    title: 'Titik Patroli',
+    listAction: 'getDaftarTitikPatroliAdmin', addAction: 'tambahTitikPatroliAdmin',
+    editAction: 'editTitikPatroliAdmin', delAction: 'hapusTitikPatroliAdmin',
+    qr: true, qrField: 'kodeQr', qrJudulField: 'namaPos', qrBadge: 'PATROLI',
+    fields: [
+      { key: 'namaPos', label: 'Nama Titik/Pos', type: 'text' },
+      { key: 'lat', label: 'Latitude', type: 'text' },
+      { key: 'lng', label: 'Longitude', type: 'text' },
+      { key: 'radius', label: 'Radius', type: 'number' },
+      { key: 'satuan', label: 'Satuan Radius', type: 'select', options: ['Meter','KM'] },
+      { key: 'kodeQr', label: 'Kode Titik (kosongkan = dibuat otomatis)', type: 'text' }
+    ]
+  },
+  tugas: {
+    title: 'Tugas Kebersihan',
+    listAction: 'getDaftarTugasAdmin', addAction: 'tambahTugasAdmin',
+    editAction: 'editTugasAdmin', delAction: 'hapusTugasAdmin',
+    qr: true, qrField: 'kodeQr', qrJudulField: 'namaTugas', qrBadge: 'TUGAS',
+    fields: [
+      { key: 'namaTugas', label: 'Nama Tugas', type: 'text' },
+      { key: 'area', label: 'Area/Lokasi', type: 'text' },
+      { key: 'lat', label: 'Latitude (opsional)', type: 'text' },
+      { key: 'lng', label: 'Longitude (opsional)', type: 'text' },
+      { key: 'radius', label: 'Radius', type: 'number' },
+      { key: 'satuan', label: 'Satuan Radius', type: 'select', options: ['Meter','KM'] },
+      { key: 'kodeQr', label: 'Kode Titik (isi QR)', type: 'text' },
+      { key: 'keterangan', label: 'Keterangan (opsional)', type: 'text' }
+    ]
+  },
+  jamkerja: {
+    title: 'Jam Kerja Standar',
+    listAction: 'getDaftarJamKerjaAdmin', addAction: 'tambahJamKerjaAdmin',
+    editAction: 'editJamKerjaAdmin', delAction: 'hapusJamKerjaAdmin',
+    // Security diatur lewat panel shift terpisah (lihat renderJamKerjaSecurityPanel),
+    // karena bisa punya 2-3 baris jam kerja (per shift), bukan satu baris seperti bagian lain.
+    fields: [
+      { key: 'bagianKerja', label: 'Bagian Kerja', type: 'select', options: ['Cleaning Service','Administrasi','Pengemudi','Tenaga Lapangan','Tenaga Produksi','Tenaga Operator','Lainnya'] },
+      { key: 'jamMasuk', label: 'Jam Masuk Standar (HH:mm)', type: 'text' },
+      { key: 'jamKeluar', label: 'Jam Keluar Standar (HH:mm, opsional)', type: 'text' },
+      { key: 'toleransi', label: 'Toleransi (menit)', type: 'number' },
+      { key: 'potonganPerJam', label: 'Potongan per Jam Telat (Rp)', type: 'number' }
+    ]
+  }
+};
+let kelolaCache = {};
+
+async function muatKelola(key) {
+  const cfg = ENTITAS_KELOLA[key];
+  const box = document.getElementById('sub-' + key);
+  const res = await api(cfg.listAction, { password: adminPassword });
+  if (!res.sukses) { box.innerHTML = '<div class="empty-state">' + res.pesan + '</div>'; return; }
+  let daftarSecurity = [];
+  if (key === 'jamkerja') {
+    daftarSecurity = (res.daftar || []).filter(d => d.bagianKerja === 'Security');
+    kelolaCache[key] = (res.daftar || []).filter(d => d.bagianKerja !== 'Security');
+  } else {
+    kelolaCache[key] = res.daftar || [];
+  }
+  renderFormKelola(key, box, cfg);
+  renderTabelKelola(key, box, cfg);
+  document.getElementById('kd-' + key + '-form').addEventListener('submit', e => { e.preventDefault(); simpanKelola(key); });
+  if (key === 'jamkerja') renderJamKerjaSecurityPanel(box, daftarSecurity);
+}
+
+const kelolaFotoPending = {};
+
+function renderFormKelola(key, box, cfg) {
+  const formHtml =
+    '<div class="panel">' +
+      '<div class="section-title" id="kd-' + key + '-formtitle">Tambah ' + cfg.title + '</div>' +
+      '<form id="kd-' + key + '-form">' +
+        '<input type="hidden" id="kd-' + key + '-baris" value="">' +
+        cfg.fields.map(f => {
+          if (f.type === 'select') {
+            return '<label>' + f.label + '</label><select id="kd-' + key + '-' + f.key + '">' +
+              f.options.map(o => '<option value="' + o + '">' + o + '</option>').join('') + '</select>';
+          }
+          if (f.type === 'foto') {
+            return '<label>' + f.label + ' (opsional)</label>' +
+              '<div class="kd-foto-row">' +
+                '<img id="kd-' + key + '-' + f.key + '-preview" class="foto-thumb hidden" alt="Preview foto">' +
+                '<input type="file" accept="image/*" id="kd-' + key + '-' + f.key + '">' +
+              '</div>';
+          }
+          return '<label>' + f.label + '</label><input type="' + f.type + '" id="kd-' + key + '-' + f.key + '">';
+        }).join('') +
+        '<div class="kd-form-row">' +
+          '<button type="submit" class="btn btn-navy" style="width:auto;">Simpan</button>' +
+          '<button type="button" class="btn btn-outline" style="width:auto;" onclick="resetFormKelola(\'' + key + '\')">Batal Edit</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+
+  box.innerHTML = formHtml + '<div id="kd-' + key + '-tabel"></div>';
+
+  cfg.fields.filter(f => f.type === 'foto').forEach(f => {
+    const storageKey = key + ':' + f.key;
+    document.getElementById('kd-' + key + '-' + f.key).addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const dataUrl = await resizeImageFileToDataUrl(file, 600);
+        kelolaFotoPending[storageKey] = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+        const preview = document.getElementById('kd-' + key + '-' + f.key + '-preview');
+        preview.src = dataUrl;
+        preview.classList.remove('hidden');
+      } catch (err) {
+        showToast('Gagal membaca file gambar.', false);
+      }
+    });
+  });
+}
+
+function resizeImageFileToDataUrl(file, maxDim) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+          else { width = Math.round(width * maxDim / height); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderBarisSatuKelola(key, cfg, d) {
+  return '<tr' + (key === 'karyawan' && d.status === 'nonaktif' ? ' class="baris-nonaktif"' : '') + '>' + cfg.fields.map(f => {
+      if (f.type === 'foto') {
+        return '<td>' + (d[f.key] ? '<img class="foto-thumb" src="' + d[f.key] + '" alt="Foto ' + (d.nama || '') + '" loading="lazy">' : '-') + '</td>';
+      }
+      if (key === 'karyawan' && f.key === 'nama') {
+        return '<td>' + namaStatusHtml(d.nama, d.status) + '</td>';
+      }
+      return '<td>' + (d[f.key] !== undefined && d[f.key] !== null ? d[f.key] : '') + '</td>';
+    }).join('') +
+    (key === 'karyawan'
+      ? '<td>' + (d.status === 'nonaktif' ? '<span class="kpi-badge bad">🚫 Nonaktif</span>' : '<span class="kpi-badge ok">Aktif</span>') + '</td>'
+      : '') +
+    '<td class="action-cell">' +
+      '<button class="btn btn-outline btn-sm" onclick="isiFormEdit(\'' + key + '\', \'' + d.id + '\')">Edit</button>' +
+      (cfg.qr ? '<button class="btn btn-outline btn-sm" onclick="tampilkanQr(\'' + String(d[cfg.qrField] || '').replace(/'/g,"\\'") + '\', \'' + String(d[cfg.qrJudulField] || '').replace(/'/g,"\\'") + '\', \'' + (cfg.qrBadge || '') + '\')">QR</button>' : '') +
+      (key === 'karyawan'
+        ? '<button class="btn btn-outline btn-sm" onclick="ubahStatusKaryawan(\'' + d.id + '\', \'' + (d.status === 'nonaktif' ? 'aktif' : 'nonaktif') + '\')">' + (d.status === 'nonaktif' ? 'Aktifkan' : 'Nonaktifkan') + '</button>'
+        : '') +
+      '<button class="btn btn-danger btn-sm" onclick="hapusKelola(\'' + key + '\', \'' + d.id + '\')">Hapus</button>' +
+    '</td></tr>';
+}
+
+// Kelola Data > Karyawan dipisah dua blok (Aktif di atas, Nonaktif di bawah)
+// dengan baris pemisah - entitas lain (lokasi/titik patroli/tugas/jam kerja)
+// tidak punya kolom status, jadi tetap tampil urut biasa apa adanya.
+function renderBarisKelola(key, cfg, daftar) {
+  const renderSatu = d => renderBarisSatuKelola(key, cfg, d);
+  if (key !== 'karyawan') return daftar.map(renderSatu).join('');
+  return gabungDenganPemisah(daftar, cfg.fields.length + 2, renderSatu, 'Karyawan Nonaktif (Sudah Keluar Kerja)');
+}
+
+function renderTabelKelola(key, box, cfg) {
+  const daftar = kelolaCache[key] || [];
+  const tabelBox = document.getElementById('kd-' + key + '-tabel');
+  const html =
+    '<div class="panel">' +
+      '<div class="section-title">Daftar ' + cfg.title + '</div>' +
+      (cfg.qr ? '<button class="btn btn-outline" id="btn-download-semua-qr-' + key + '" style="width:auto; margin-bottom:12px;" onclick="downloadSemuaQr(\'' + key + '\')">⬇️ Download Semua QR (ZIP)</button>' : '') +
+      '<div class="table-scroll"><table><thead><tr>' +
+        cfg.fields.map(f => '<th>' + f.label + '</th>').join('') +
+        (key === 'karyawan' ? '<th>Status</th>' : '') + '<th></th>' +
+      '</tr></thead><tbody>' +
+        (daftar.length ? renderBarisKelola(key, cfg, daftar) : '<tr><td colspan="' + (cfg.fields.length + 1 + (key === 'karyawan' ? 1 : 0)) + '" class="muted">Belum ada data.</td></tr>') +
+      '</tbody></table></div>' +
+    '</div>';
+  tabelBox.innerHTML = html;
+}
+
+function isiFormEdit(key, id) {
+  const cfg = ENTITAS_KELOLA[key];
+  const item = (kelolaCache[key] || []).find(x => x.id === id);
+  if (!item) return;
+  document.getElementById('kd-' + key + '-baris').value = id;
+  cfg.fields.forEach(f => {
+    if (f.type === 'foto') {
+      delete kelolaFotoPending[key + ':' + f.key];
+      const inputEl = document.getElementById('kd-' + key + '-' + f.key);
+      if (inputEl) inputEl.value = '';
+      const preview = document.getElementById('kd-' + key + '-' + f.key + '-preview');
+      if (preview) {
+        if (item[f.key]) { preview.src = item[f.key]; preview.classList.remove('hidden'); }
+        else { preview.src = ''; preview.classList.add('hidden'); }
+      }
+      return;
+    }
+    const el = document.getElementById('kd-' + key + '-' + f.key);
+    if (el) el.value = (item[f.key] !== undefined && item[f.key] !== null) ? item[f.key] : '';
+  });
+  document.getElementById('kd-' + key + '-formtitle').textContent = 'Edit ' + cfg.title;
+  document.getElementById('kd-' + key + '-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function resetFormKelola(key) {
+  const cfg = ENTITAS_KELOLA[key];
+  document.getElementById('kd-' + key + '-baris').value = '';
+  cfg.fields.forEach(f => {
+    if (f.type === 'foto') {
+      delete kelolaFotoPending[key + ':' + f.key];
+      const inputEl = document.getElementById('kd-' + key + '-' + f.key);
+      if (inputEl) inputEl.value = '';
+      const preview = document.getElementById('kd-' + key + '-' + f.key + '-preview');
+      if (preview) { preview.src = ''; preview.classList.add('hidden'); }
+      return;
+    }
+    const el = document.getElementById('kd-' + key + '-' + f.key); if (el) el.value = '';
+  });
+  document.getElementById('kd-' + key + '-formtitle').textContent = 'Tambah ' + cfg.title;
+}
+async function simpanKelola(key) {
+  const cfg = ENTITAS_KELOLA[key];
+  const id = document.getElementById('kd-' + key + '-baris').value;
+  const payload = { password: adminPassword };
+  cfg.fields.forEach(f => {
+    if (f.type === 'foto') {
+      const pending = kelolaFotoPending[key + ':' + f.key];
+      if (pending) { payload.fotoBase64 = pending.base64; payload.mimeType = pending.mimeType; }
+      return;
+    }
+    const nilai = document.getElementById('kd-' + key + '-' + f.key).value.trim();
+    payload[f.key] = f.type === 'number' ? (Number(nilai) || 0) : nilai;
+  });
+  let res;
+  if (id) {
+    payload.id = id;
+    res = await api(cfg.editAction, payload);
+  } else {
+    res = await api(cfg.addAction, payload);
+  }
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) { resetFormKelola(key); muatKelola(key); }
+}
+async function hapusKelola(key, id) {
+  if (!confirm('Yakin ingin menghapus data ini?')) return;
+  const cfg = ENTITAS_KELOLA[key];
+  const res = await api(cfg.delAction, { password: adminPassword, id });
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) muatKelola(key);
+}
+
+// ---- Jam Kerja Security: shift (8 jam = Pagi/Siang/Malam, 12 jam = Pagi/Malam) ----
+const JKS_SHIFT_MAP = { '8jam': ['Pagi', 'Siang', 'Malam'], '12jam': ['Pagi', 'Malam'] };
+let jksDataCache = [];
+
+function renderJamKerjaSecurityRows(tipe) {
+  const shifts = JKS_SHIFT_MAP[tipe] || JKS_SHIFT_MAP['8jam'];
+  document.getElementById('jks-rows').innerHTML = shifts.map(s => {
+    const existing = jksDataCache.find(d => d.shift === s && d.tipeShift === tipe) || {};
+    return '<div class="kd-form-row" style="align-items:flex-end;">' +
+        '<div style="flex:1; min-width:160px;"><label>Shift ' + s + ' &ndash; Jam Masuk (HH:mm)</label><input type="text" id="jks-jam-' + s + '" value="' + (existing.jamMasuk || '') + '"></div>' +
+        '<div style="flex:1; min-width:120px;"><label>Toleransi (menit)</label><input type="number" id="jks-tol-' + s + '" value="' + (existing.toleransi != null ? existing.toleransi : 0) + '"></div>' +
+        '<div style="flex:1; min-width:140px;"><label>Potongan/Jam Telat (Rp)</label><input type="number" id="jks-pot-' + s + '" value="' + (existing.potonganPerJam != null ? existing.potonganPerJam : 0) + '"></div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderTabelJamKerjaSecurity(daftarSecurity) {
+  const urutan = ['Pagi', 'Siang', 'Malam'];
+  const terurut = [...daftarSecurity].sort((a, b) => urutan.indexOf(a.shift) - urutan.indexOf(b.shift));
+  return '<div class="panel">' +
+      '<div class="section-title">Daftar Jam Kerja Security</div>' +
+      '<div class="table-scroll"><table><thead><tr>' +
+        '<th>Shift</th><th>Jam Masuk Standar</th><th>Toleransi (menit)</th><th>Potongan/Jam Telat (Rp)</th>' +
+      '</tr></thead><tbody>' +
+        (terurut.length
+          ? terurut.map(d => '<tr><td>' + d.shift + '</td><td>' + (d.jamMasuk || '').slice(0, 5) + '</td><td>' + d.toleransi + '</td><td>' + (d.potonganPerJam || 0) + '</td></tr>').join('')
+          : '<tr><td colspan="4" class="muted">Belum diatur.</td></tr>') +
+      '</tbody></table></div>' +
+    '</div>';
+}
+
+function renderJamKerjaSecurityPanel(box, daftarSecurity) {
+  jksDataCache = daftarSecurity;
+  const tipeTersimpan = daftarSecurity[0] && daftarSecurity[0].tipeShift || '8jam';
+  const html =
+    '<div class="panel">' +
+      '<div class="section-title">Jam Kerja Security (Shift)</div>' +
+      '<p class="muted" style="font-size:13px; margin-top:-6px;">Security bekerja rotasi shift, bukan satu jam masuk tunggal. Pilih tipe shift, lalu isi jam masuk dan toleransi tiap shift.</p>' +
+      '<label>Tipe Shift</label>' +
+      '<select id="jks-tipe" onchange="renderJamKerjaSecurityRows(this.value)">' +
+        '<option value="8jam"' + (tipeTersimpan === '8jam' ? ' selected' : '') + '>8 Jam (Pagi, Siang, Malam)</option>' +
+        '<option value="12jam"' + (tipeTersimpan === '12jam' ? ' selected' : '') + '>12 Jam (Pagi, Malam)</option>' +
+      '</select>' +
+      '<div id="jks-rows"></div>' +
+      '<div class="kd-form-row">' +
+        '<button type="button" class="btn btn-navy" style="width:auto;" onclick="simpanJamKerjaSecurity()">Simpan Jam Kerja Security</button>' +
+      '</div>' +
+    '</div>' +
+    renderTabelJamKerjaSecurity(daftarSecurity);
+  box.insertAdjacentHTML('afterbegin', html);
+  renderJamKerjaSecurityRows(tipeTersimpan);
+}
+
+async function simpanJamKerjaSecurity() {
+  const tipeShift = document.getElementById('jks-tipe').value;
+  const shifts = JKS_SHIFT_MAP[tipeShift].map(s => ({
+    shift: s,
+    jamMasuk: document.getElementById('jks-jam-' + s).value.trim(),
+    toleransi: document.getElementById('jks-tol-' + s).value.trim(),
+    potonganPerJam: document.getElementById('jks-pot-' + s).value.trim()
+  }));
+  const res = await api('simpanJamKerjaSecurityAdmin', { password: adminPassword, tipeShift, shifts });
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) muatKelola('jamkerja');
+}
+
+function tampilkanQr(kode, judul, label) {
+  if (!kode) return showToast('Titik ini belum punya Kode Titik. Isi dulu "Kode Titik" di form, baru QR bisa dibuat.', false);
+  label = label || 'PATROLI';
+  document.getElementById('qr-modal-title').textContent = 'QR: ' + judul;
+  const box = document.getElementById('qr-canvas-box');
+  box.innerHTML = '';
+  new QRCode(box, { text: kode, width: 220, height: 220 });
+  document.getElementById('btn-download-qr').onclick = () => unduhTemplateQr(kode, judul, label, 'QR_' + judul.replace(/[^a-z0-9]+/gi, '_'), kode);
+  document.getElementById('qr-modal').classList.remove('hidden');
+}
+function tutupQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
+
+// ---------- TEMPLATE QR SIAP TEMPEL (LOGO + NAMA PERUSAHAAN) ----------
+const LABEL_INSTRUKSI = { ABSENSI: 'Scan kode QR ini untuk Absensi', PATROLI: 'Scan kode QR ini untuk Absen Patroli', TUGAS: 'Scan kode QR ini untuk Absen Tugas' };
+
+function bungkusTeks(ctx, teks, x, y, lebarMax, tinggiBaris) {
+  const kata = teks.split(' ');
+  const baris = [];
+  let baris1 = '';
+  for (let i = 0; i < kata.length; i++) {
+    const uji = baris1 + kata[i] + ' ';
+    if (ctx.measureText(uji).width > lebarMax && i > 0) { baris.push(baris1.trim()); baris1 = kata[i] + ' '; }
+    else { baris1 = uji; }
+  }
+  baris.push(baris1.trim());
+  const yAwal = y - ((baris.length - 1) * tinggiBaris) / 2;
+  baris.forEach((b, i) => ctx.fillText(b, x, yAwal + i * tinggiBaris));
+}
+
+function buatCanvasTemplateQr(kode, judul, label, kodeReferensi) {
+  return new Promise((resolve, reject) => {
+    const logo = new Image();
+    logo.onload = () => {
+      try {
+        const tempBox = document.createElement('div');
+        tempBox.style.cssText = 'position:absolute; left:-9999px; top:-9999px;';
+        document.body.appendChild(tempBox);
+        new QRCode(tempBox, { text: kode, width: 320, height: 320 });
+        const qrSumber = tempBox.querySelector('canvas') || tempBox.querySelector('img');
+
+        const W = 560, H = 740;
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = '#cdd6e3';
+        ctx.setLineDash([9, 7]);
+        ctx.lineWidth = 3;
+        ctx.strokeRect(12, 12, W - 24, H - 24);
+        ctx.setLineDash([]);
+
+        const logoSize = 68;
+        ctx.drawImage(logo, (W - logoSize) / 2, 40, logoSize, logoSize);
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#9b1c1c';
+        ctx.font = '800 21px Arial';
+        ctx.fillText('PT CAKRA ADIDAYA PERKASA', W / 2, 134);
+
+        const badgeW = 170, badgeH = 36;
+        ctx.fillStyle = '#9b1c1c';
+        ctx.fillRect((W - badgeW) / 2, 154, badgeW, badgeH);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 15px Arial';
+        ctx.fillText(label, W / 2, 177);
+
+        const qrSize = 360;
+        ctx.drawImage(qrSumber, (W - qrSize) / 2, 214, qrSize, qrSize);
+
+        ctx.fillStyle = '#1f2937';
+        ctx.font = '700 26px Arial';
+        bungkusTeks(ctx, judul, W / 2, 626, W - 80, 32);
+
+        ctx.fillStyle = '#7c8798';
+        ctx.font = '500 15px Arial';
+        ctx.fillText(LABEL_INSTRUKSI[label] || ('Scan kode QR ini untuk ' + label), W / 2, 690);
+
+        if (kodeReferensi) {
+          ctx.fillStyle = '#aab2bf';
+          ctx.font = '500 12px monospace';
+          ctx.fillText(kodeReferensi, W / 2, 714);
+        }
+
+        document.body.removeChild(tempBox);
+        resolve(canvas);
+      } catch (e) { reject(e); }
+    };
+    logo.onerror = () => reject(new Error('Logo perusahaan gagal dimuat'));
+    logo.src = 'logo-watermark.png';
+  });
+}
+
+function unduhTemplateQr(kode, judul, label, namaFile, kodeReferensi) {
+  buatCanvasTemplateQr(kode, judul, label, kodeReferensi).then((canvas) => {
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = namaFile + '.png';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }).catch((e) => showToast('Gagal membuat template QR: ' + e.message, false));
+}
+
+function canvasKeBlob(canvas) {
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
+}
+
+async function downloadSemuaQr(key) {
+  const cfg = ENTITAS_KELOLA[key];
+  const daftar = (kelolaCache[key] || []).filter((d) => d[cfg.qrField]);
+  if (daftar.length === 0) return showToast('Belum ada ' + cfg.title.toLowerCase() + ' dengan Kode QR untuk didownload.', false);
+
+  const btn = document.getElementById('btn-download-semua-qr-' + key);
+  const labelAsli = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Menyiapkan ZIP... ⏳';
+
+  try {
+    const zip = new JSZip();
+    const namaTerpakai = {};
+    for (const d of daftar) {
+      const judul = String(d[cfg.qrJudulField] || 'QR');
+      const kodeAsli = String(d[cfg.qrField]);
+      const canvas = await buatCanvasTemplateQr(kodeAsli, judul, cfg.qrBadge || 'QR', kodeAsli);
+      const blob = await canvasKeBlob(canvas);
+      let namaFile = judul.replace(/[^a-zA-Z0-9]+/g, '_');
+      let urutan = 1;
+      while (namaTerpakai[namaFile]) namaFile = judul.replace(/[^a-zA-Z0-9]+/g, '_') + '_' + (++urutan);
+      namaTerpakai[namaFile] = true;
+      zip.file('QR_' + namaFile + '.png', blob);
+    }
+    const contentBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(contentBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'QR_' + cfg.title.replace(/[^a-zA-Z0-9]+/g, '_') + '_Semua.zip';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showToast('Gagal membuat ZIP: ' + e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = labelAsli;
+  }
+}
+
+// Koordinator tidak punya KODE_KLIEN tetap di URL (bisa pindah lokasi), jadi
+// dipakai kode_klien dari lokasi yang sedang aktif di switcher header.
+function kodeKlienAktif() {
+  if (!MODE_KOORDINATOR) return KODE_KLIEN;
+  const lokasi = daftarLokasiKoordinator.find(l => l.id === klienIdAktif);
+  return lokasi ? lokasi.kodeKlien : '';
+}
+
+// ---------- SLIP GAJI GENERATOR ----------
+// Murni alat bantu di sisi browser (belum tersimpan ke database) - isian
+// Pendapatan/Pengurangan bebas diedit (nama item & nominal), bukan daftar
+// tetap, supaya admin bisa menyesuaikan per karyawan/bulan.
+let slipPendapatan = [{ nama: 'Gaji pokok', jumlah: 0 }, { nama: 'Uang Makan', jumlah: 0 }];
+let slipPengurangan = [{ nama: 'PPH 21', jumlah: 0 }, { nama: 'BPJS Kesehatan', jumlah: 0 }];
+let slipLogoDataUrl = '';
+let slipGajiTerinit = false;
+let slipDaftarTersimpan = [];
+
+function initSlipGaji() {
+  renderSlipItemRows();
+  if (logoKlienAktif && !slipLogoDataUrl) {
+    slipLogoDataUrl = logoKlienAktif;
+    const preview = document.getElementById('slip-logo-preview');
+    preview.src = logoKlienAktif;
+    preview.classList.remove('hidden');
+  }
+  const elBulan = document.getElementById('slip-bulan');
+  if (!elBulan.value) {
+    const now = new Date();
+    elBulan.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  }
+  // Nama Karyawan dikunci ke akun yang benar-benar terdaftar (bukan ketik
+  // bebas) - pilihannya diambil dari cache "Karyawan" yang sudah dimuat
+  // (subtab Karyawan selalu dibuka duluan saat tab Kelola Data pertama aktif).
+  const selKaryawan = document.getElementById('slip-nama-karyawan');
+  const nilaiTerpilih = selKaryawan.value;
+  const optKaryawan = k => '<option value="' + escAttrSlip(k.id) + '">' + (k.status === 'nonaktif' ? '🚫 ' : '') + escHtmlSlip(k.nama) + '</option>';
+  const daftarSlipKaryawan = kelolaCache.karyawan || [];
+  const slipAktif = daftarSlipKaryawan.filter(k => k.status !== 'nonaktif');
+  const slipNonaktif = daftarSlipKaryawan.filter(k => k.status === 'nonaktif');
+  selKaryawan.innerHTML = '<option value="">Pilih karyawan...</option>' +
+    (slipAktif.length ? '<optgroup label="Karyawan Aktif">' + slipAktif.map(optKaryawan).join('') + '</optgroup>' : '') +
+    (slipNonaktif.length ? '<optgroup label="Karyawan Nonaktif (Sudah Keluar Kerja)">' + slipNonaktif.map(optKaryawan).join('') + '</optgroup>' : '');
+  if (nilaiTerpilih) selKaryawan.value = nilaiTerpilih;
+  if (!slipGajiTerinit) {
+    document.getElementById('slip-logo-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const dataUrl = await resizeImageFileToDataUrl(file, 300);
+        slipLogoDataUrl = dataUrl;
+        const preview = document.getElementById('slip-logo-preview');
+        preview.src = dataUrl;
+        preview.classList.remove('hidden');
+      } catch (err) {
+        showToast('Gagal membaca file logo.', false);
+      }
+    });
+    slipGajiTerinit = true;
+  }
+  muatDaftarSlipGajiTersimpan();
+}
+
+function karyawanTerpilihSlip() {
+  const id = document.getElementById('slip-nama-karyawan').value;
+  return (kelolaCache.karyawan || []).find(k => k.id === id) || null;
+}
+function pilihSlipKaryawan() {
+  const k = karyawanTerpilihSlip();
+  document.getElementById('slip-id-karyawan').value = k ? (k.idKaryawan || '-') : '';
+  // Jabatan karyawan ditentukan admin lewat Kelola Data > Karyawan - ikut
+  // dipakai di sini supaya template yang termuat sesuai jabatan orangnya.
+  if (k && k.jabatan) {
+    document.getElementById('slip-jabatan').value = k.jabatan;
+    muatTemplateSlipGaji();
+  }
+}
+
+async function muatDaftarSlipGajiTersimpan() {
+  const tbody = document.getElementById('slip-daftar-tersimpan');
+  const res = await api('getDaftarSlipGajiAdmin', { password: adminPassword });
+  if (!res.sukses) { tbody.innerHTML = '<tr><td colspan="4" class="muted">' + res.pesan + '</td></tr>'; return; }
+  slipDaftarTersimpan = res.daftar || [];
+  tbody.innerHTML = slipDaftarTersimpan.length
+    ? slipDaftarTersimpan.map(d =>
+        '<tr>' +
+          '<td>' + escHtmlSlip(d.jabatan || '-') + '</td>' +
+          '<td>' + escHtmlSlip(d.departemen || '-') + '</td>' +
+          '<td>' + (d.diubahPada ? new Date(d.diubahPada).toLocaleString('id-ID') : '-') + '</td>' +
+          '<td class="action-cell"><button class="btn btn-outline btn-sm" onclick="editSlipGaji(\'' + d.id + '\')">Edit</button></td>' +
+        '</tr>'
+      ).join('')
+    : '<tr><td colspan="4" class="muted">Belum ada pengaturan tersimpan.</td></tr>';
+}
+
+// Dipanggil tiap Jabatan/Departemen di form berubah - otomatis muat template
+// tersimpan untuk kombinasi itu kalau sudah ada (tanpa klik Edit manual).
+function muatTemplateSlipGaji() {
+  const jabatan = document.getElementById('slip-jabatan').value;
+  const departemen = document.getElementById('slip-departemen').value;
+  const d = slipDaftarTersimpan.find(x => x.jabatan === jabatan && x.departemen === departemen);
+  terapkanTemplateSlipGaji(d || null);
+}
+function terapkanTemplateSlipGaji(d) {
+  document.getElementById('slip-catatan').value = d ? (d.catatan || '') : '';
+  document.getElementById('slip-disetujui-nama').value = (d && d.disetujuiNama) || 'Bayu Brawarso';
+  document.getElementById('slip-disetujui-jabatan').value = (d && d.disetujuiJabatan) || 'HR Manager';
+  slipPendapatan = (d && d.pendapatan && d.pendapatan.length) ? d.pendapatan : [{ nama: 'Gaji pokok', jumlah: 0 }, { nama: 'Uang Makan', jumlah: 0 }];
+  slipPengurangan = (d && d.pengurangan && d.pengurangan.length) ? d.pengurangan : [{ nama: 'PPH 21', jumlah: 0 }, { nama: 'BPJS Kesehatan', jumlah: 0 }];
+  renderSlipItemRows();
+}
+
+function editSlipGaji(id) {
+  const d = slipDaftarTersimpan.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('slip-jabatan').value = d.jabatan || 'Anggota';
+  document.getElementById('slip-departemen').value = d.departemen || 'Keamanan';
+  terapkanTemplateSlipGaji(d);
+  showToast('Template "' + (d.jabatan || '') + ' - ' + (d.departemen || '') + '" dimuat ke form.', true);
+  document.getElementById('slip-jabatan').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function simpanSlipGaji() {
+  const res = await api('simpanSlipGajiAdmin', {
+    password: adminPassword,
+    jabatan: document.getElementById('slip-jabatan').value,
+    departemen: document.getElementById('slip-departemen').value,
+    pendapatan: slipPendapatan,
+    pengurangan: slipPengurangan,
+    catatan: document.getElementById('slip-catatan').value.trim(),
+    disetujuiNama: document.getElementById('slip-disetujui-nama').value.trim(),
+    disetujuiJabatan: document.getElementById('slip-disetujui-jabatan').value.trim()
+  });
+  showToast(res.pesan, res.sukses);
+  if (res.sukses) muatDaftarSlipGajiTersimpan();
+}
+
+function renderSlipItemRows() {
+  const kolom = (tipe, arr) => arr.map((item, i) =>
+    '<div class="slip-item-row">' +
+      '<input type="text" value="' + escAttrSlip(item.nama) + '" placeholder="Nama item" oninput="updateSlipItem(\'' + tipe + '\',' + i + ',\'nama\',this.value)">' +
+      '<input type="text" inputmode="numeric" value="' + (item.jumlah || '') + '" placeholder="0" oninput="updateSlipItem(\'' + tipe + '\',' + i + ',\'jumlah\',this.value)">' +
+      '<button type="button" class="btn btn-danger btn-sm" onclick="hapusSlipItem(\'' + tipe + '\',' + i + ')">✕</button>' +
+    '</div>'
+  ).join('');
+  document.getElementById('slip-pendapatan-rows').innerHTML = kolom('pendapatan', slipPendapatan);
+  document.getElementById('slip-pengurangan-rows').innerHTML = kolom('pengurangan', slipPengurangan);
+}
+function tambahSlipItem(tipe) {
+  (tipe === 'pendapatan' ? slipPendapatan : slipPengurangan).push({ nama: '', jumlah: 0 });
+  renderSlipItemRows();
+}
+function hapusSlipItem(tipe, idx) {
+  (tipe === 'pendapatan' ? slipPendapatan : slipPengurangan).splice(idx, 1);
+  renderSlipItemRows();
+}
+function updateSlipItem(tipe, idx, field, value) {
+  const arr = tipe === 'pendapatan' ? slipPendapatan : slipPengurangan;
+  if (!arr[idx]) return;
+  arr[idx][field] = field === 'jumlah' ? (parseInt(String(value).replace(/[^0-9]/g, ''), 10) || 0) : value;
+}
+function escAttrSlip(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+function escHtmlSlip(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function formatRpSlip(n) { return 'Rp' + (n || 0).toLocaleString('id-ID'); }
+function formatTanggalIndoSlip(isoDate) {
+  const bagian = isoDate.split('-');
+  return Number(bagian[2]) + '/' + Number(bagian[1]) + '/' + bagian[0];
+}
+
+function renderSlipPreview() {
+  const namaPerusahaan = document.getElementById('slip-nama-perusahaan').value.trim() || 'Nama Perusahaan';
+  const bulanVal = document.getElementById('slip-bulan').value;
+  const bulanText = bulanVal ? (NAMA_BULAN[parseInt(bulanVal.split('-')[1], 10) - 1] + ' ' + bulanVal.split('-')[0]) : '-';
+
+  const karyawanTerpilih = karyawanTerpilihSlip();
+  const namaKaryawan = karyawanTerpilih ? karyawanTerpilih.nama : '-';
+  const idKaryawan = document.getElementById('slip-id-karyawan').value.trim();
+  const jabatan = document.getElementById('slip-jabatan').value;
+  const departemen = document.getElementById('slip-departemen').value;
+  const cutoff = document.getElementById('slip-cutoff').value.trim();
+  const tglBayarVal = document.getElementById('slip-tgl-bayar').value;
+  const tglBayar = tglBayarVal ? formatTanggalIndoSlip(tglBayarVal) : '-';
+
+  const catatan = document.getElementById('slip-catatan').value.trim();
+  const disetujuiNama = document.getElementById('slip-disetujui-nama').value.trim() || 'Bayu Brawarso';
+  const disetujuiJabatan = document.getElementById('slip-disetujui-jabatan').value.trim() || 'HR Manager';
+
+  const totalPendapatan = slipPendapatan.reduce((s, it) => s + (it.jumlah || 0), 0);
+  const totalPengurangan = slipPengurangan.reduce((s, it) => s + (it.jumlah || 0), 0);
+  const thp = totalPendapatan - totalPengurangan;
+
+  const baris = (arr) => arr.map(it => '<tr><td>' + escHtmlSlip(it.nama || '-') + '</td><td class="num">' + formatRpSlip(it.jumlah) + '</td></tr>').join('');
+  const infoRow = (label, value) => '<div class="slip-info-row"><span class="lbl">' + escHtmlSlip(label) + '</span><span class="colon">:</span><span class="val">' + escHtmlSlip(value || '-') + '</span></div>';
+
+  document.getElementById('slip-preview-cetak').innerHTML =
+    '<div class="slip-sheet-head">' +
+      '<div class="slip-sheet-brand">' +
+        (slipLogoDataUrl ? '<img src="' + slipLogoDataUrl + '" alt="Logo">' : '') +
+        '<div class="slip-sheet-nama-pt">' + escHtmlSlip(namaPerusahaan) + '</div>' +
+      '</div>' +
+      '<div style="text-align:right;">' +
+        '<div class="muted" style="font-size:11px;">Slip gaji untuk bulan</div>' +
+        '<div class="slip-sheet-bulan">' + bulanText + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="slip-sheet-section-title">Rincian karyawan</div>' +
+    '<div class="slip-sheet-info-cols">' +
+      '<div>' + infoRow('Nama karyawan', namaKaryawan) + infoRow('ID karyawan', idKaryawan) + infoRow('Jabatan', jabatan) + infoRow('Departemen', departemen) + '</div>' +
+      '<div>' + infoRow('Payroll cut off', cutoff) + infoRow('Tanggal bayar', tglBayar) + '</div>' +
+    '</div>' +
+    '<div class="slip-sheet-section-title">Rincian penghasilan</div>' +
+    '<div class="slip-sheet-grid2">' +
+      '<table><thead><tr><th>Pendapatan</th><th class="num">Jumlah</th></tr></thead><tbody>' + baris(slipPendapatan) +
+        '<tr class="slip-total-row"><td>Total pendapatan</td><td class="num">' + formatRpSlip(totalPendapatan) + '</td></tr>' +
+      '</tbody></table>' +
+      '<table><thead><tr><th>Pengurangan</th><th class="num">Jumlah</th></tr></thead><tbody>' + baris(slipPengurangan) +
+        '<tr class="slip-total-row"><td>Total pengurangan</td><td class="num">' + formatRpSlip(totalPengurangan) + '</td></tr>' +
+      '</tbody></table>' +
+    '</div>' +
+    '<div class="slip-sheet-thp">' +
+      '<div class="slip-sheet-thp-left"><div class="slip-sheet-thp-label">Take Home Pay</div><div class="muted" style="font-size:11px;">Total pendapatan - Total pengurangan</div></div>' +
+      '<div class="slip-sheet-thp-right">' + formatRpSlip(thp) + '</div>' +
+    '</div>' +
+    '<div class="slip-sheet-bottom">' +
+      '<div><div class="muted" style="font-size:11.5px;">Catatan</div>' + (catatan ? '<div style="font-size:12.5px; margin-top:6px;">' + escHtmlSlip(catatan) + '</div>' : '') + '</div>' +
+      '<div><div class="muted" style="font-size:11.5px;">Disetujui oleh:</div><div class="slip-sheet-ttd-space"></div><div class="slip-sheet-ttd-nama">' + escHtmlSlip(disetujuiNama) + '</div><div class="muted" style="font-size:11.5px;">' + escHtmlSlip(disetujuiJabatan) + '</div></div>' +
+      '<div><div class="muted" style="font-size:11.5px;">Diterima oleh:</div><div class="slip-sheet-ttd-space"></div><div class="slip-sheet-ttd-nama">' + escHtmlSlip(namaKaryawan) + '</div><div class="muted" style="font-size:11.5px;">' + escHtmlSlip(jabatan) + '</div></div>' +
+    '</div>' +
+    '<div class="slip-sheet-footer">' +
+      '<img src="icon-192.png" alt="Logo CAP">' +
+      '<div><div>Slip gaji ini dibuat dengan aplikasi <b class="slip-sheet-footer-brand">CAP Payslip Generator</b></div>' +
+      '<div>Jika terjadi kesalahan nominal bisa menghubungi Admin</div></div>' +
+    '</div>';
+}
+// Dulu PDF dibuat dengan "memotret" (html2canvas) tampilan preview di layar -
+// TERBUKTI berkali-kali gagal (posisi/ukuran salah hitung kalau ada
+// sticky/fixed/scroll di sekitarnya). Sekarang PDF digambar langsung pakai
+// jsPDF (teks & kotak asli, bukan gambar hasil jepretan layar), independen
+// dari tampilan preview - hasilnya konsisten mengikuti layout template,
+// tidak ikut-ikutan gaya tampilan di layar mana pun.
+let logoRayBase64Cache = '';
+function muatLogoRayBase64() {
+  if (logoRayBase64Cache) return Promise.resolve(logoRayBase64Cache);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        logoRayBase64Cache = canvas.toDataURL('image/png');
+        resolve(logoRayBase64Cache);
+      } catch (e) { resolve(''); }
+    };
+    img.onerror = () => resolve('');
+    img.src = 'icon-192.png';
+  });
+}
+function gambarSlipGajiPdf(data) {
+  const { jsPDF } = window.jspdf;
+  const kiri = 16, kanan = 194, lebar = kanan - kiri;
+  const NAVY = [23, 56, 92], MUTED = [124, 135, 152], TEKS = [31, 41, 55], GARIS = [227, 231, 238], SOFT = [234, 240, 246], HIJAU = [227, 242, 230];
+
+  // Tinggi halaman dihitung dulu dari isinya (bukan dipaksa 1 halaman A4
+  // penuh/297mm) - supaya tidak ada sisa kertas kosong di bawah, dan jarak
+  // antar bagian dipadatkan (termasuk celah Rincian karyawan -> Rincian
+  // penghasilan yang tadinya kebesaran) supaya hasilnya mendekati setengah
+  // halaman A4. 113.8 = akumulasi semua "y +=" tetap di proses gambar sampai
+  // baseline teks footer, ditambah tinggi visual footer di bawah baseline
+  // (logo, ~6.8mm) + margin bawah kertas (8mm). Kalau urutan "y +=" di bawah
+  // berubah, angka ini harus ikut disesuaikan (lihat perhitungan simulasi
+  // yang dipakai untuk menurunkan angka ini, jangan tebak manual).
+  const jmlBarisInfo = Math.max(4, (data.infoKanan || []).length);
+  const tinggiTabel = (rows) => 6 + (rows || []).length * 5 + 6;
+  const tinggiTabelMax = Math.max(tinggiTabel(data.pendapatan), tinggiTabel(data.pengurangan));
+  const tinggiIsi = 113.8 + jmlBarisInfo * 5 + tinggiTabelMax;
+  // PENTING: jsPDF diam-diam MENUKAR lebar/tinggi di "format" kalau orientasi
+  // default ('portrait', wajib tinggi >= lebar) tidak cocok dengan angka yang
+  // dikirim - inilah yang bikin hasil sebelumnya kepotong lebar-nya jadi
+  // sesempit tinggiIsi (karena tinggiIsi < 210, dianggap harus ditukar jadi
+  // lebar). Deklarasikan orientation eksplisit sesuai kondisinya supaya
+  // jsPDF tidak pernah menukar urutan [lebar, tinggi] yang sudah benar ini.
+  const lebarHalaman = 210;
+  const orientasiHalaman = tinggiIsi >= lebarHalaman ? 'portrait' : 'landscape';
+  const doc = new jsPDF({ unit: 'mm', format: [lebarHalaman, tinggiIsi], orientation: orientasiHalaman });
+
+  let y = 16;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
+  doc.text(data.namaPerusahaan || '-', kiri, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Slip gaji untuk bulan', kanan, y - 4, { align: 'right' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
+  doc.text(data.bulanText || '-', kanan, y + 2, { align: 'right' });
+
+  y += 10;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text('Rincian karyawan', kiri, y);
+  y += 5;
+
+  const infoKiri = [['Nama karyawan', data.namaKaryawan], ['ID karyawan', data.idKaryawan], ['Jabatan', data.jabatan], ['Departemen', data.departemen]];
+  const infoKanan = data.infoKanan || [];
+  const tinggiBaris = 5;
+  const kolomKananX = kiri + 95;
+  const gambarBarisInfo = (x, baseY, label, value) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+    doc.text(label, x, baseY);
+    doc.text(':', x + 32, baseY);
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+    doc.text(String(value || '-'), x + 36, baseY);
+  };
+  const jmlBaris = Math.max(infoKiri.length, infoKanan.length);
+  for (let i = 0; i < jmlBaris; i++) {
+    const ry = y + i * tinggiBaris;
+    if (infoKiri[i]) gambarBarisInfo(kiri, ry, infoKiri[i][0], infoKiri[i][1]);
+    if (infoKanan[i]) gambarBarisInfo(kolomKananX, ry, infoKanan[i][0], infoKanan[i][1]);
+  }
+  y += jmlBaris * tinggiBaris + 4;
+
+  doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]); doc.setLineWidth(0.2);
+  doc.line(kiri, y, kanan, y);
+  y += 6;
+
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text('Rincian penghasilan', kiri, y);
+  y += 4;
+
+  const lebarTabel = (lebar - 8) / 2;
+  const kolom1X = kiri, kolom2X = kiri + lebarTabel + 8;
+  const tinggiHeader = 6, tinggiItem = 5, tinggiTotal = 6;
+
+  const gambarTabel = (x, label, rows, total) => {
+    let ty = y;
+    doc.setFillColor(SOFT[0], SOFT[1], SOFT[2]);
+    doc.rect(x, ty, lebarTabel, tinggiHeader, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+    doc.text(label, x + 2, ty + 4.3);
+    doc.text('Jumlah', x + lebarTabel - 2, ty + 4.3, { align: 'right' });
+    ty += tinggiHeader;
+    rows.forEach((it) => {
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+      doc.text(String(it.nama || '-'), x + 2, ty + 3.7);
+      doc.text(formatRpSlip(it.jumlah), x + lebarTabel - 2, ty + 3.7, { align: 'right' });
+      doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]); doc.line(x, ty + tinggiItem, x + lebarTabel, ty + tinggiItem);
+      ty += tinggiItem;
+    });
+    doc.setFillColor(SOFT[0], SOFT[1], SOFT[2]);
+    doc.rect(x, ty, lebarTabel, tinggiTotal, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total ' + label.toLowerCase(), x + 2, ty + 4.3);
+    doc.text(formatRpSlip(total), x + lebarTabel - 2, ty + 4.3, { align: 'right' });
+    ty += tinggiTotal;
+    return ty;
+  };
+
+  const totalPendapatan = (data.pendapatan || []).reduce((s, it) => s + (it.jumlah || 0), 0);
+  const totalPengurangan = (data.pengurangan || []).reduce((s, it) => s + (it.jumlah || 0), 0);
+  const akhir1 = gambarTabel(kolom1X, 'Pendapatan', data.pendapatan || [], totalPendapatan);
+  const akhir2 = gambarTabel(kolom2X, 'Pengurangan', data.pengurangan || [], totalPengurangan);
+  y = Math.max(akhir1, akhir2) + 6;
+
+  const thp = totalPendapatan - totalPengurangan;
+  const tinggiThp = 13, lebarThp = 46;
+  doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]);
+  doc.rect(kiri, y, lebar, tinggiThp, 'S');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text('Take Home Pay', kiri + 4, y + 5.5);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Total pendapatan - Total pengurangan', kiri + 4, y + 10);
+  doc.setFillColor(HIJAU[0], HIJAU[1], HIJAU[2]);
+  doc.rect(kanan - lebarThp, y, lebarThp, tinggiThp, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text(formatRpSlip(thp), kanan - 4, y + 8, { align: 'right' });
+  y += tinggiThp + 8;
+
+  const kolC = kiri, kolD = kiri + 62, kolE = kiri + 124;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Catatan', kolC, y);
+  doc.text('Disetujui oleh:', kolD, y);
+  doc.text('Diterima oleh:', kolE, y);
+  if (data.catatan) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+    doc.text(doc.splitTextToSize(data.catatan, 55), kolC, y + 5);
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(TEKS[0], TEKS[1], TEKS[2]);
+  doc.text(data.disetujuiNama || '-', kolD, y + 12.5);
+  doc.text(data.namaKaryawan || '-', kolE, y + 12.5);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text(data.disetujuiJabatan || '', kolD, y + 17);
+  doc.text(data.jabatan || '', kolE, y + 17);
+  y += 22;
+
+  doc.setDrawColor(GARIS[0], GARIS[1], GARIS[2]);
+  doc.line(kiri, y, kanan, y);
+  y += 5;
+
+  // Logo CAP (sama seperti di header aplikasi, icon-192.png) + teks branding
+  // "CAP Payslip Generator" tebal-biru, baris kedua keterangan kontak
+  // admin. Logo diposisikan supaya pusat vertikalnya sejajar dengan pusat
+  // vertikal blok teks 2 baris di sampingnya (baseline baris 1 = y, baseline
+  // baris 2 = y+4 -> pusat teks sekitar y+1.3), bukan sekadar nempel di atas.
+  const ukuranLogo = 11;
+  let xTeks = kiri;
+  if (data.logoRayBase64) {
+    try { doc.addImage(data.logoRayBase64, 'PNG', kiri, y - 4.2, ukuranLogo, ukuranLogo); xTeks = kiri + ukuranLogo + 4; } catch (e) {}
+  }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Slip gaji ini dibuat dengan aplikasi ', xTeks, y);
+  const lebarAwalFooter = doc.getTextWidth('Slip gaji ini dibuat dengan aplikasi ');
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
+  doc.text('CAP Payslip Generator', xTeks + lebarAwalFooter, y);
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+  doc.text('Jika terjadi kesalahan nominal bisa menghubungi Admin', xTeks, y + 4);
+
+  return doc;
+}
+
+async function unduhSlipGajiPdf() {
+  renderSlipPreview();
+  const karyawanTerpilih = karyawanTerpilihSlip();
+  const namaKaryawan = karyawanTerpilih ? karyawanTerpilih.nama : '-';
+  const idKaryawan = document.getElementById('slip-id-karyawan').value.trim();
+  const jabatan = document.getElementById('slip-jabatan').value;
+  const departemen = document.getElementById('slip-departemen').value;
+  const namaPerusahaan = document.getElementById('slip-nama-perusahaan').value.trim() || 'Nama Perusahaan';
+  const bulanVal = document.getElementById('slip-bulan').value;
+  const bulanText = bulanVal ? (NAMA_BULAN[parseInt(bulanVal.split('-')[1], 10) - 1] + ' ' + bulanVal.split('-')[0]) : '-';
+  const cutoff = document.getElementById('slip-cutoff').value.trim();
+  const tglBayarVal = document.getElementById('slip-tgl-bayar').value;
+  const tglBayar = tglBayarVal ? formatTanggalIndoSlip(tglBayarVal) : '-';
+  const catatan = document.getElementById('slip-catatan').value.trim();
+  const disetujuiNama = document.getElementById('slip-disetujui-nama').value.trim() || 'Bayu Brawarso';
+  const disetujuiJabatan = document.getElementById('slip-disetujui-jabatan').value.trim() || 'HR Manager';
+  const logoRayBase64 = await muatLogoRayBase64();
+
+  const doc = gambarSlipGajiPdf({
+    namaPerusahaan, bulanText, namaKaryawan, idKaryawan, jabatan, departemen,
+    infoKanan: [['Payroll cut off', cutoff || '-'], ['Tanggal bayar', tglBayar]],
+    pendapatan: slipPendapatan, pengurangan: slipPengurangan,
+    catatan, disetujuiNama, disetujuiJabatan, logoRayBase64
+  });
+  const namaFile = 'Slip_Gaji_' + namaKaryawan.replace(/[^a-zA-Z0-9]+/g, '_') + '_' + (bulanVal || 'bulan') + '.pdf';
+  doc.save(namaFile);
+}
+
+let kodeQrAbsensi = '';
+function initQrWeb() {
+  const kodeAktif = kodeKlienAktif();
+  const otomatis = location.href.replace(/admin\.html.*$/, 'index.html') + '?klien=' + encodeURIComponent(kodeAktif);
+  const saved = localStorage.getItem('linkWebKaryawan_' + kodeAktif);
+  document.getElementById('qrweb-link').value = saved || otomatis;
+  document.getElementById('qrweb-kode').textContent = '';
+  api('getKodeQrAbsensiAdmin', { password: adminPassword }).then((res) => {
+    if (res.sukses) {
+      kodeQrAbsensi = res.kode;
+      document.getElementById('qrweb-kode').textContent = 'Kode: ' + res.kode;
+    }
+  });
+}
+document.getElementById('btn-generate-qrweb').addEventListener('click', () => {
+  const link = document.getElementById('qrweb-link').value.trim();
+  if (!link) return showToast('Isi link web karyawan dulu.', false);
+  localStorage.setItem('linkWebKaryawan_' + kodeKlienAktif(), link);
+  const box = document.getElementById('qrweb-box');
+  box.style.display = 'flex';
+  box.innerHTML = '';
+  new QRCode(box, { text: link, width: 240, height: 240 });
+  const btnDl = document.getElementById('btn-download-qrweb');
+  btnDl.classList.remove('hidden');
+  btnDl.onclick = () => unduhTemplateQr(link, 'Akses Web Karyawan', 'ABSENSI', 'QR_Akses_Web_Karyawan', kodeQrAbsensi);
+});
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function barisKeSel(baris) {
+  let s = baris.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  return s.split('|').map((c) => c.trim());
+}
+
+// AI sering menjawab pakai **tebal** gaya markdown; escapeHtml tidak menyentuh
+// karakter "*" jadi tanpa ini tampil sebagai asterisk literal di chat.
+function mdTebalKeHtml(teksSudahDiescape) {
+  return teksSudahDiescape.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+}
+
+function aiTeksKeHtml(teks) {
+  const baris = teks.replace(/\r\n/g, '\n').split('\n');
+  let html = '';
+  let i = 0;
+  while (i < baris.length) {
+    const l = baris[i];
+    const lPemisah = baris[i + 1];
+    const adaTabel = l.includes('|') && lPemisah && /^[\s|:-]+$/.test(lPemisah) && lPemisah.includes('-');
+    if (adaTabel) {
+      const header = barisKeSel(l);
+      i += 2;
+      const rows = [];
+      while (i < baris.length && baris[i].includes('|')) {
+        rows.push(barisKeSel(baris[i]));
+        i++;
+      }
+      html += '<div class="chat-table-wrap"><table class="chat-table"><thead><tr>' +
+        header.map((c) => '<th>' + mdTebalKeHtml(escapeHtml(c)) + '</th>').join('') +
+        '</tr></thead><tbody>' +
+        rows.map((r) => '<tr>' + r.map((c) => '<td>' + mdTebalKeHtml(escapeHtml(c)) + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table></div>';
+    } else {
+      html += mdTebalKeHtml(escapeHtml(l)) + (i < baris.length - 1 ? '<br>' : '');
+      i++;
+    }
+  }
+  return html;
+}
+
+function pushChat(role, text) {
+  const log = document.getElementById('chat-log');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  if (role === 'ai') {
+    div.innerHTML = aiTeksKeHtml(text);
+  } else {
+    div.textContent = text;
+  }
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+document.getElementById('btn-chat-send').addEventListener('click', kirimChat);
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); kirimChat(); }
+});
+async function kirimChat() {
+  const input = document.getElementById('chat-input');
+  const teks = input.value.trim();
+  if (!teks) return;
+  pushChat('user', teks);
+  input.value = '';
+  const btn = document.getElementById('btn-chat-send');
+  setBusy(btn, true, '...', 'Kirim');
+  const res = await api('tanyaAdminAI', { password: adminPassword, pertanyaan: teks, bulan: filterBulan, tahun: filterTahun });
+  setBusy(btn, false, '', 'Kirim');
+  pushChat('ai', res.sukses ? res.jawaban : ('⚠️ ' + res.pesan));
+}
+
+// ---------- REKAP EXCEL PER LOKASI (khusus Admin CAP) ----------
+async function muatLokasiRekap() {
+  const sel = document.getElementById('rekap-lokasi');
+  const res = await api('getDaftarLokasiAdmin', { password: adminPassword });
+  const daftar = (res.sukses && res.daftar) ? res.daftar : [];
+  sel.innerHTML = '<option value="">Semua Lokasi</option>' +
+    daftar.map(l => '<option value="' + l.nama + '">' + l.nama + '</option>').join('');
+}
+// ---------- REKAP EXCEL ALA TEMPLATE (khusus KEMENAG PROV JATENG) ----------
+// Meniru struktur file template "REKAP ABSENSI HWI <bulan>" yang dipelajari
+// 2026-10-31: 3 jenis sheet (ringkasan per orang, matriks keterlambatan, detail
+// harian per karyawan) - bukan 1 sheet flat seperti rekap klien lain di bawah.
+// Aturan bisnis yang disepakati bersama user (2026-10-31), JANGAN diasumsikan
+// berlaku untuk klien lain tanpa ditanya ulang:
+// - OFF = hari Minggu, KECUALI Security (kerja shift terus-menerus, tidak ada
+//   OFF mingguan otomatis - hari tanpa absen & tanpa ijin dihitung Alpa, bukan
+//   OFF, karena CAP belum punya data roster libur per orang).
+// - Security pakai 2 shift 12 jam (Pagi 07:00-19:00, Malam 19:00-07:00) HANYA
+//   di rekap ini (hardcode di bawah). Config jam_kerja_standar Security di
+//   database SENGAJA TIDAK diubah (masih 3 shift 8 jam) atas keputusan user -
+//   jadi dashboard/Penilaian & Evaluasi klien ini tetap pakai angka lama.
+// - Pengemudi & "Lainnya" disamakan jam kerjanya dengan Administrasi.
+const KODE_KLIEN_TEMPLATE_HWI = 'kemenag-prov-jateng';
+const HARI_INDO = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+function jamKeMenitTpl(jam) {
+  if (!jam) return null;
+  const [h, m] = String(jam).split(':').map(Number);
+  return h * 60 + m;
+}
+function menitKeJamTpl(menit) {
+  const bulat = ((menit % 1440) + 1440) % 1440;
+  return String(Math.floor(bulat / 60)).padStart(2, '0') + ':' + String(bulat % 60).padStart(2, '0');
+}
+
+// Warna isian sel Sabtu/Minggu di sheet KETERLAMBATAN - butuh xlsx-js-style
+// (lihat tag <script> xlsx di <head>), SheetJS gratis biasa tidak bisa nulis
+// warna sel sama sekali.
+const WARNA_WEEKEND = { patternType: 'solid', fgColor: { rgb: 'FCE4D6' } };
+function warnaiSel(ws, baris0, kolom0, fill) {
+  const alamat = XLSX.utils.encode_cell({ r: baris0, c: kolom0 });
+  if (!ws[alamat]) ws[alamat] = { t: 's', v: '' };
+  ws[alamat].s = Object.assign({}, ws[alamat].s, { fill });
+}
+
+async function unduhRekapTemplateKemenag(bulan, tahun) {
+  const [resKaryawan, resJamKerja, resAbsensi, resIjin] = await Promise.all([
+    api('getDaftarKaryawanAdmin', { password: adminPassword }),
+    api('getDaftarJamKerjaAdmin', { password: adminPassword }),
+    api('daftarAbsensiDetailAdmin', { password: adminPassword, bulan, tahun }),
+    api('daftarIjinDisetujuiPeriodeAdmin', { password: adminPassword, bulan, tahun }),
+  ]);
+  if (!resKaryawan.sukses) return showToast(resKaryawan.pesan, false);
+  if (!resAbsensi.sukses) return showToast(resAbsensi.pesan, false);
+
+  // Urutan baris di rekap: Administrasi dulu, lalu Cleaning Service, bagian
+  // lain yang belum disebut user di tengah, Security selalu paling bawah
+  // (disepakati 2026-10-31). Di dalam satu bagian, urut nama A-Z.
+  const URUTAN_BAGIAN_DEPAN = ['Administrasi', 'Cleaning Service'];
+  const peringkatBagian = (bagianKerja) => {
+    if (bagianKerja === 'Security') return 99;
+    const idx = URUTAN_BAGIAN_DEPAN.indexOf(bagianKerja);
+    return idx === -1 ? 50 : idx;
+  };
+  const daftarKaryawan = (resKaryawan.daftar || []).filter(k => k.status !== 'nonaktif')
+    .sort((a, b) => peringkatBagian(a.bagianKerja) - peringkatBagian(b.bagianKerja) || a.nama.localeCompare(b.nama));
+  const jamKerjaList = resJamKerja.daftar || [];
+
+  // Standar jam kerja per bagian (selain Security) - fallback ke Administrasi
+  // untuk Pengemudi/Lainnya/bagian lain yang belum punya jam standar sendiri.
+  const standarBagian = {};
+  jamKerjaList.forEach(j => {
+    if (j.bagianKerja === 'Security') return;
+    standarBagian[j.bagianKerja] = {
+      masuk: jamKeMenitTpl(j.jamMasuk), keluar: jamKeMenitTpl(j.jamKeluar),
+      toleransi: j.toleransi || 0, potonganPerJam: Number(j.potonganPerJam) || 0,
+    };
+  });
+  const standarAdministrasi = standarBagian['Administrasi'] || { masuk: 450, keluar: 960, toleransi: 0, potonganPerJam: 0 };
+  const standarUntuk = (bagianKerja) => standarBagian[bagianKerja] || standarAdministrasi;
+  const potonganSecurity = (jamKerjaList.find(j => j.bagianKerja === 'Security') || {}).potonganPerJam || 0;
+  const SHIFT_SECURITY = [
+    { nama: 'Pagi', masuk: 420, keluar: 1140, toleransi: 0 },
+    { nama: 'Malam', masuk: 1140, keluar: 420, toleransi: 0 },
+  ];
+  const shiftSecurityTerdekat = (menitMasuk) => SHIFT_SECURITY.reduce((terbaik, s) => {
+    const jarak = Math.min(Math.abs(menitMasuk - s.masuk), 1440 - Math.abs(menitMasuk - s.masuk));
+    const jarakTerbaik = Math.min(Math.abs(menitMasuk - terbaik.masuk), 1440 - Math.abs(menitMasuk - terbaik.masuk));
+    return jarak < jarakTerbaik ? s : terbaik;
+  }, SHIFT_SECURITY[0]);
+
+  const jumlahHari = new Date(tahun, bulan, 0).getDate();
+  const tanggalList = Array.from({ length: jumlahHari }, (_, i) => i + 1);
+
+  const absensiMap = {};
+  (resAbsensi.daftar || []).forEach(r => { absensiMap[r.nama + '|' + r.tanggal] = r; });
+  const ijinSet = new Set();
+  (resIjin.daftar || []).forEach(r => { ijinSet.add(r.nama + '|' + r.tanggalIjin); });
+
+  const ringkasanRows = [];
+  const keterlambatanRows = [];
+  const detailSheets = [];
+
+  daftarKaryawan.forEach((k, idx) => {
+    const isSecurity = k.bagianKerja === 'Security';
+    const standar = isSecurity ? null : standarUntuk(k.bagianKerja);
+
+    let hadir = 0, alpa = 0, masukSaatOff = 0, jumlahOff = 0, poinTelat = 0, totalPotongan = 0;
+    const baris = [];
+    const poinHarian = [];
+
+    tanggalList.forEach(d => {
+      const tgl = tahun + '-' + String(bulan).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const isMinggu = new Date(tahun, bulan - 1, d).getDay() === 0;
+      const isOff = !isSecurity && isMinggu;
+      const sesi = absensiMap[k.nama + '|' + tgl];
+      const ada = !!(sesi && sesi.jamMasuk);
+      const izin = ijinSet.has(k.nama + '|' + tgl);
+      if (isOff) jumlahOff++;
+
+      let jadwalMasuk = '-', jadwalKeluar = '-', aktualMasuk = '-', aktualKeluar = '-', info = '-', poinHari = 0;
+
+      if (isSecurity) {
+        if (ada) {
+          const menitMasuk = jamKeMenitTpl(sesi.jamMasuk);
+          const shift = shiftSecurityTerdekat(menitMasuk);
+          jadwalMasuk = menitKeJamTpl(shift.masuk); jadwalKeluar = menitKeJamTpl(shift.keluar);
+          aktualMasuk = sesi.jamMasuk; aktualKeluar = sesi.jamKeluar || '-';
+          info = 'Shift ' + shift.nama;
+          const telat = Math.max(0, menitMasuk - shift.masuk - shift.toleransi);
+          poinHari = Math.ceil(telat / 60);
+          hadir++;
+        } else if (izin) {
+          info = 'IJIN';
+        } else {
+          info = 'ALPA (shift tidak diketahui)';
+          alpa++;
+        }
+      } else {
+        jadwalMasuk = menitKeJamTpl(standar.masuk);
+        jadwalKeluar = standar.keluar != null ? menitKeJamTpl(standar.keluar) : '-';
+        if (isOff) {
+          jadwalMasuk = 'OFF'; jadwalKeluar = 'OFF';
+          if (ada) {
+            aktualMasuk = sesi.jamMasuk; aktualKeluar = sesi.jamKeluar || '-';
+            info = 'MASUK SAAT OFF'; masukSaatOff++;
+          } else {
+            info = 'OFF';
+          }
+        } else if (ada) {
+          aktualMasuk = sesi.jamMasuk; aktualKeluar = sesi.jamKeluar || '-';
+          info = k.bagianKerja;
+          const menitMasuk = jamKeMenitTpl(sesi.jamMasuk);
+          const telat = Math.max(0, menitMasuk - standar.masuk - standar.toleransi);
+          poinHari = Math.ceil(telat / 60);
+          hadir++;
+        } else if (izin) {
+          info = 'IJIN';
+        } else {
+          info = 'ALPA'; alpa++;
+        }
+      }
+
+      const potonganHari = poinHari * (isSecurity ? potonganSecurity : standar.potonganPerJam);
+      poinTelat += poinHari; totalPotongan += potonganHari;
+      poinHarian.push(poinHari);
+      baris.push([
+        'KEMENAG PROV JATENG', k.nama, k.bagianKerja, tgl, jadwalMasuk, jadwalKeluar, aktualMasuk, aktualKeluar, info,
+      ]);
+    });
+
+    ringkasanRows.push([idx + 1, k.nama, k.bagianKerja, jumlahHari - jumlahOff, hadir, alpa, masukSaatOff, jumlahOff]);
+    keterlambatanRows.push([idx + 1, k.nama, ...poinHarian, poinTelat, -Math.round(totalPotongan)]);
+    detailSheets.push({ nama: k.nama, baris });
+  });
+
+  const wb = XLSX.utils.book_new();
+  const judulPeriode = NAMA_BULAN[bulan - 1].toUpperCase() + ' ' + tahun;
+
+  // ---- Sheet 1: REKAP ABSENSI PER ORANG ----
+  const wsRingkasan = XLSX.utils.aoa_to_sheet([
+    ['REKAPITULASI KETIDAKHADIRAN & KEHADIRAN KARYAWAN'],
+    ['KEMENAG PROV JATENG - PERIODE ' + judulPeriode],
+    ['NO', 'NAMA KARYAWAN', 'JABATAN', 'HARI KERJA SCHEDULE', 'JUMLAH HADIR', 'TIDAK ABSEN / ALPA', 'MASUK SAAT SCHEDULE OFF', 'JUMLAH LIBUR (OFF)'],
+    ...ringkasanRows,
+  ]);
+  wsRingkasan['!cols'] = [{ wch: 4 }, { wch: 30 }, { wch: 16 }, { wch: 18 }, { wch: 13 }, { wch: 17 }, { wch: 22 }, { wch: 17 }];
+  // Sheet ini tidak punya kolom per-tanggal (cuma rekap total per orang),
+  // jadi "pewarnaan hari Sabtu/Minggu" tidak berlaku di sini - lihat sheet
+  // KETERLAMBATAN di bawah untuk pewarnaan kolom harian.
+  XLSX.utils.book_append_sheet(wb, wsRingkasan, 'REKAP ABSENSI PER ORANG');
+
+  // ---- Sheet 2: KETERLAMBATAN ----
+  const totalSemua = -Math.round(keterlambatanRows.reduce((s, r) => s + Math.abs(r[r.length - 1]), 0));
+  const barisKosongHari = Array(tanggalList.length).fill('');
+  const wsKeterlambatan = XLSX.utils.aoa_to_sheet([
+    ['REKAP POTONGAN KETERLAMBATAN JAM KERJA'],
+    ['KEMENAG PROV JATENG'],
+    ['01 - ' + jumlahHari + ' ' + judulPeriode],
+    ['NO', 'ANGGOTA', '01 - ' + jumlahHari + ' ' + judulPeriode, ...barisKosongHari.slice(1), 'POIN KETERLAMBATAN', 'TOTAL KETERLAMBATAN'],
+    ['', '', ...tanggalList, '', ''],
+    ['', '', ...tanggalList.map(d => HARI_INDO[new Date(tahun, bulan - 1, d).getDay()]), '', ''],
+    ...keterlambatanRows,
+    ['TOTAL REKAP POTONGAN KETERLAMBATAN JAM KERJA', '', ...barisKosongHari, '', totalSemua],
+  ]);
+  wsKeterlambatan['!cols'] = [
+    { wch: 4 }, { wch: 30 }, ...tanggalList.map(() => ({ wch: 4 })), { wch: 16 }, { wch: 18 },
+  ];
+  // Warnai seluruh kolom Sabtu & Minggu (dari baris nomor tanggal sampai
+  // baris TOTAL paling bawah) supaya kelihatan beda dari hari kerja biasa.
+  const BARIS_AWAL_HARI_KETERLAMBATAN = 4; // 0-based: baris nomor tanggal (1,2,3,...)
+  const totalBarisKeterlambatan = BARIS_AWAL_HARI_KETERLAMBATAN + 2 + keterlambatanRows.length + 1;
+  tanggalList.forEach(d => {
+    const dow = new Date(tahun, bulan - 1, d).getDay();
+    if (dow !== 0 && dow !== 6) return; // cuma Minggu(0) & Sabtu(6)
+    const kolom0 = 2 + (d - 1);
+    for (let r = BARIS_AWAL_HARI_KETERLAMBATAN; r < totalBarisKeterlambatan; r++) warnaiSel(wsKeterlambatan, r, kolom0, WARNA_WEEKEND);
+  });
+  XLSX.utils.book_append_sheet(wb, wsKeterlambatan, 'KETERLAMBATAN');
+
+  // ---- Sheet 3+: detail harian per karyawan (nama sheet maks 31 char, tanpa karakter terlarang Excel, dedup kalau ada nama kembar) ----
+  const namaSheetDipakai = new Set(['REKAP ABSENSI PER ORANG', 'KETERLAMBATAN']);
+  detailSheets.forEach(({ nama, baris }) => {
+    const dasar = nama.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || 'Karyawan';
+    let namaSheet = dasar, i = 2;
+    while (namaSheetDipakai.has(namaSheet.toUpperCase())) { namaSheet = (dasar.slice(0, 28) + ' ' + i).slice(0, 31); i++; }
+    namaSheetDipakai.add(namaSheet.toUpperCase());
+    const wsDetail = XLSX.utils.aoa_to_sheet([
+      ['DAILY ATTENDANCE RECAP ' + judulPeriode],
+      ['KEMENAG PROV JATENG'],
+      ['CUSTOMER', 'NAME', 'POSITION', 'CLOCKING DATE', 'SCHEDULE', '', 'ACTUAL', '', 'INFORMATION'],
+      ...baris,
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsDetail, namaSheet);
+  });
+
+  XLSX.writeFile(wb, 'Rekap_Absensi_KEMENAG_PROV_JATENG_Template_' + NAMA_BULAN[bulan - 1] + tahun + '.xlsx');
+}
+
+document.getElementById('btn-unduh-rekap').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-unduh-rekap');
+  if (String(kodeKlienAktif() || '').trim().toLowerCase() === KODE_KLIEN_TEMPLATE_HWI) {
+    setBusy(btn, true, 'Menyiapkan...', 'Unduh Excel');
+    try {
+      await unduhRekapTemplateKemenag(filterBulan, filterTahun);
+    } catch (e) {
+      showToast('Gagal membuat rekap: ' + e.message, false);
+    }
+    setBusy(btn, false, '', 'Unduh Excel');
+    return;
+  }
+  const lokasiPilihan = document.getElementById('rekap-lokasi').value;
+  setBusy(btn, true, 'Menyiapkan...', 'Unduh Excel');
+  const res = await api('daftarAbsensiDetailAdmin', { password: adminPassword, bulan: filterBulan, tahun: filterTahun });
+  setBusy(btn, false, '', 'Unduh Excel');
+  if (!res.sukses) return showToast(res.pesan, false);
+  let daftar = res.daftar || [];
+  if (lokasiPilihan) daftar = daftar.filter(r => r.namaLokasiMasuk === lokasiPilihan || r.namaLokasiKeluar === lokasiPilihan);
+  if (!daftar.length) return showToast('Tidak ada data absensi untuk lokasi & periode ini.', false);
+
+  const rows = daftar.map(r => ({
+    Tanggal: r.tanggal, Nama: r.nama, 'Status Karyawan': r.status === 'nonaktif' ? 'Nonaktif' : 'Aktif', 'Bagian Kerja': r.bagianKerja,
+    'Jam Masuk': r.jamMasuk || '', 'Telat (menit)': r.menitTelat != null ? r.menitTelat : '',
+    'Lokasi Masuk': r.namaLokasiMasuk, 'Jarak Masuk (m)': r.jarakMasuk != null ? r.jarakMasuk : '',
+    'Akurasi GPS Masuk (m)': r.akurasiMasuk != null ? r.akurasiMasuk : '', 'Foto Masuk': r.fotoMasukUrl || '',
+    'Jam Keluar': r.jamKeluar || '',
+    'Lokasi Keluar': r.namaLokasiKeluar, 'Jarak Keluar (m)': r.jarakKeluar != null ? r.jarakKeluar : '',
+    'Akurasi GPS Keluar (m)': r.akurasiKeluar != null ? r.akurasiKeluar : '', 'Foto Keluar': r.fotoKeluarUrl || '',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Rekap Absensi');
+  const namaLokasiFile = lokasiPilihan ? lokasiPilihan.replace(/[^a-z0-9]+/gi, '_') : 'SemuaLokasi';
+  const namaFile = 'Rekap_Absensi_' + kodeKlienAktif() + '_' + namaLokasiFile + '_' + NAMA_BULAN[filterBulan - 1] + filterTahun + '.xlsx';
+  XLSX.writeFile(wb, namaFile);
+});
+
+// STARTUP AWAL + CEK SESI
+(async () => {
+  await muatInfoSistem();
+
+  if (MODE_KOORDINATOR) {
+    const saved = localStorage.getItem(KOORDINATOR_SESSION_KEY);
+    if (!saved) return;
+    const s = JSON.parse(saved);
+    // Login koordinator dipanggil ulang (bukan sekadar baca localStorage) supaya
+    // daftar lokasi selalu segar — kalau akun dinonaktifkan atau lokasinya
+    // diubah oleh Super Admin sejak sesi terakhir, itu langsung ketahuan di sini.
+    const res = await api('loginKoordinator', { kodeKoordinator: s.kodeKoordinator, password: s.adminPassword });
+    if (!res.sukses) { localStorage.removeItem(KOORDINATOR_SESSION_KEY); return; }
+    kodeKoordinator = s.kodeKoordinator;
+    adminPassword = s.adminPassword;
+    daftarLokasiKoordinator = res.daftarLokasi || [];
+    const lokasiTersimpan = daftarLokasiKoordinator.find(l => l.id === s.klienIdAktif);
+    if (lokasiTersimpan) {
+      klienIdAktif = lokasiTersimpan.id;
+      peran = 'koordinator';
+      masukKeApp(lokasiTersimpan);
+    } else {
+      tampilkanPilihLokasi(res.namaKoordinator);
+    }
+    return;
+  }
+
+  if (!KODE_KLIEN) return;
+
+  const saved = localStorage.getItem(SESSION_KEY);
+  if (saved) {
+    const s = JSON.parse(saved);
+    adminPassword = s.adminPassword;
+    peran = s.peran;
+    masukKeApp();
+  }
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+}
+</script>
+</body>
+</html>
