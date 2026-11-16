@@ -48,7 +48,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="CAP Super Admin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root{
@@ -155,12 +155,14 @@
   .copy-row button{margin-top:0; flex:none;}
   #qr-box{display:flex; justify-content:center; padding:14px; background:#fff; border-radius:var(--radius-sm); margin:10px 0;}
 </style>
+<link rel="stylesheet" href="tema-admin.css?v=1">
+<script>try{var _t=localStorage.getItem('cap_tema')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-tema',_t);}catch(e){}</script>
 </head>
 <body>
 
 <section id="screen-login" class="center-screen">
   <div class="login-card">
-    <div class="brand">PT CAKRA ADIDAYA PERKASA</div>
+    <img class="login-logo" src="logo-cakra.png" alt="CAKRA APP"><div class="brand">PT CAKRA ADIDAYA PERKASA</div>
     <h1>Super Admin</h1>
     <p class="muted">Kelola semua klien dari satu tempat</p>
     <label>Password Super Admin</label>
@@ -171,7 +173,7 @@
 
 <div class="app" id="app">
   <header class="top">
-    <div class="display">Super Admin <span class="role-tag">MASTER</span></div>
+    <div class="display" style="display:flex;align-items:center;gap:12px"><img class="logo-brand" src="logo-cakra.png" alt="CAKRA APP"> CAKRA APP · Super Admin <span class="role-tag internal">MASTER</span></div>
     <button class="btn btn-danger btn-sm" id="btn-logout">Keluar</button>
   </header>
 
