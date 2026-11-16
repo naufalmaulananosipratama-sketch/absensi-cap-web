@@ -84,8 +84,8 @@ async function manifestDenganQueryString(request, namaFile, halaman) {
   const startUrl = qs ? base + halaman + qs : base + halaman;
   const manifest = {
     id: startUrl,
-    name: namaFile === 'manifest.json' ? 'Absensi CAP — Karyawan' : (namaFile === 'manifest-admin.json' ? 'Absensi CAP — Admin' : 'Absensi CAP — Super Admin'),
-    short_name: namaFile === 'manifest.json' ? 'Absensi CAP' : (namaFile === 'manifest-admin.json' ? 'CAP Admin' : 'CAP Super Admin'),
+    name: namaFile === 'manifest.json' ? 'CAKRA APP — Karyawan' : (namaFile === 'manifest-admin.json' ? 'CAKRA APP — Admin' : 'CAKRA APP — Super Admin'),
+    short_name: namaFile === 'manifest.json' ? 'CAKRA APP' : (namaFile === 'manifest-admin.json' ? 'CAKRA APP Admin' : 'CAP Super Admin'),
     start_url: startUrl,
     scope: base,
     display: 'standalone',
