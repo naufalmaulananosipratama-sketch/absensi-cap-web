@@ -3318,9 +3318,19 @@ document.getElementById('btn-unduh-rekap').addEventListener('click', async () =>
 
   const saved = localStorage.getItem(SESSION_KEY);
   if (saved) {
-    const s = JSON.parse(saved);
+    let s = null;
+    try { s = JSON.parse(saved); } catch (e) { s = null; }
+    // Peran sesi tersimpan harus COCOK dengan link yang dibuka:
+    //  - Link Admin CAP (tanpa &akses=klien) hanya boleh memulihkan sesi 'super'.
+    //  - Link Admin Klien (&akses=klien) hanya boleh memulihkan sesi 'klien'.
+    // Sesi lama yang tidak cocok dibuang supaya tidak otomatis masuk sebagai admin klien.
+    const peranDiharapkan = AKSES_PARAM === 'klien' ? 'klien' : 'super';
+    if (!s || !s.adminPassword || s.peran !== peranDiharapkan) { localStorage.removeItem(SESSION_KEY); return; }
+    // Periksa ulang ke server: password yang sudah diganti / tidak berlaku tidak boleh masuk diam-diam.
+    const cek = await api('loginAdmin', { password: s.adminPassword });
+    if (!cek.sukses || cek.peran !== peranDiharapkan) { localStorage.removeItem(SESSION_KEY); return; }
     adminPassword = s.adminPassword;
-    peran = s.peran;
+    peran = cek.peran;
     masukKeApp();
   }
 })();
