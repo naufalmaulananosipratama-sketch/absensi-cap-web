@@ -206,3 +206,16 @@ select:disabled{background:var(--surface-2); color:var(--text); -webkit-text-fil
 .gps-map{background:var(--surface-2);}
 html[data-tema="dark"] .gps-map .leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9);}
 html[data-tema="dark"] .gps-map .leaflet-container{background:var(--surface-2);}
+
+/* ---- logo transparan tanpa kotak putih ---- */
+.brand .logo{width:44px; height:48px; background:transparent !important; border-radius:0 !important; box-shadow:none !important; overflow:visible;}
+.brand .logo img{width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 6px 12px rgba(0,0,0,.45));}
+.login-hero .logo{width:84px; height:92px; background:transparent !important; border-radius:0 !important; box-shadow:none !important; overflow:visible;}
+.login-hero .logo img{width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 14px 24px rgba(0,0,0,.5));}
+.brand{gap:12px;}
+/* layar lebar: hero tampil sebagai kartu melengkung penuh, bukan terpotong */
+@media (min-width:521px){
+  .hero{margin:12px 0 0; border-radius:34px; padding-left:22px; padding-right:22px;}
+  .login-hero{margin:12px 0 0; border-radius:36px;}
+  .shift-card{margin-top:-46px;}
+}
