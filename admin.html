@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Absensi CAP — Admin</title>
+<title>CAKRA APP — Admin</title>
 <link rel="manifest" href="manifest-admin.json">
 <script>
 // iOS membaca start_url dari manifest.json (bukan URL yang sedang dibuka) saat
@@ -17,9 +17,9 @@
     if (!qs) return;
     var manifest = {
       id: './admin.html' + qs,
-      name: 'Absensi CAP — Admin',
-      short_name: 'CAP Admin',
-      description: 'Aplikasi admin klien untuk Absensi CAP',
+      name: 'CAKRA APP — Admin',
+      short_name: 'CAKRA APP Admin',
+      description: 'Aplikasi admin klien untuk CAKRA APP',
       start_url: './admin.html' + qs,
       scope: './',
       display: 'standalone',
@@ -46,7 +46,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="CAP Admin">
+<meta name="apple-mobile-web-app-title" content="CAKRA APP Admin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains&#43;Mono:wght@500;600&amp;display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -348,7 +348,7 @@
   <header class="top">
     <div class="brand-block">
       <img src="icon-192.png" alt="logo" style="width:30px; height:30px; border-radius:7px;">
-      <div class="display" id="brand-header">Absensi CAP</div>
+      <div class="display" id="brand-header">CAKRA APP</div>
       <span class="role-tag" id="role-tag">-</span>
     </div>
     <div class="filter-group">
@@ -921,7 +921,7 @@ async function muatInfoSistem() {
     // jadi branding diisi generik dulu, lalu diganti nama lokasi aktif setelah dipilih.
     document.title = 'Admin — Koordinator Lapangan';
     const brand = document.getElementById('brand-header');
-    if (brand) brand.textContent = 'Absensi CAP · Koordinator Lapangan';
+    if (brand) brand.textContent = 'CAKRA APP · Koordinator Lapangan';
     return;
   }
   if (!KODE_KLIEN) {
@@ -934,11 +934,11 @@ async function muatInfoSistem() {
     return;
   }
   const nama = res.namaKlien || '';
-  document.title = 'Admin — ' + (nama || 'Absensi CAP');
+  document.title = 'Admin — ' + (nama || 'CAKRA APP');
   const sub = document.getElementById('subtitle-klien');
   if (sub) sub.textContent = nama ? ('Klien: ' + nama) : '';
   const brand = document.getElementById('brand-header');
-  if (brand) brand.textContent = nama ? ('Absensi CAP · ' + nama) : 'Absensi CAP';
+  if (brand) brand.textContent = nama ? ('CAKRA APP · ' + nama) : 'CAKRA APP';
   namaKlienAktif = nama;
   if (res.logoUrl) {
     logoKlienAktif = res.logoUrl;
@@ -1095,7 +1095,7 @@ function perbaruiBrandingLokasiAktif(lokasi) {
   if (!lokasi) return;
   document.title = 'Admin — ' + lokasi.namaKlien;
   const brand = document.getElementById('brand-header');
-  if (brand) brand.textContent = 'Absensi CAP · ' + lokasi.namaKlien;
+  if (brand) brand.textContent = 'CAKRA APP · ' + lokasi.namaKlien;
   if (lokasi.logoUrl) document.querySelectorAll('img[alt="logo"]').forEach(el => { el.src = lokasi.logoUrl; });
 }
 document.getElementById('lokasi-aktif-select').addEventListener('change', (e) => {
@@ -2694,7 +2694,7 @@ function renderSlipPreview() {
     '</div>' +
     '<div class="slip-sheet-footer">' +
       '<img src="icon-192.png" alt="Logo CAP">' +
-      '<div><div>Slip gaji ini dibuat dengan aplikasi <b class="slip-sheet-footer-brand">CAP Payslip Generator</b></div>' +
+      '<div><div>Slip gaji ini dibuat dengan aplikasi <b class="slip-sheet-footer-brand">CAKRA APP Payslip Generator</b></div>' +
       '<div>Jika terjadi kesalahan nominal bisa menghubungi Admin</div></div>' +
     '</div>';
 }
@@ -2860,7 +2860,7 @@ function gambarSlipGajiPdf(data) {
   y += 5;
 
   // Logo CAP (sama seperti di header aplikasi, icon-192.png) + teks branding
-  // "CAP Payslip Generator" tebal-biru, baris kedua keterangan kontak
+  // "CAKRA APP Payslip Generator" tebal-biru, baris kedua keterangan kontak
   // admin. Logo diposisikan supaya pusat vertikalnya sejajar dengan pusat
   // vertikal blok teks 2 baris di sampingnya (baseline baris 1 = y, baseline
   // baris 2 = y+4 -> pusat teks sekitar y+1.3), bukan sekadar nempel di atas.
@@ -2873,7 +2873,7 @@ function gambarSlipGajiPdf(data) {
   doc.text('Slip gaji ini dibuat dengan aplikasi ', xTeks, y);
   const lebarAwalFooter = doc.getTextWidth('Slip gaji ini dibuat dengan aplikasi ');
   doc.setFont('helvetica', 'bold'); doc.setTextColor(NAVY[0], NAVY[1], NAVY[2]);
-  doc.text('CAP Payslip Generator', xTeks + lebarAwalFooter, y);
+  doc.text('CAKRA APP Payslip Generator', xTeks + lebarAwalFooter, y);
   doc.setFont('helvetica', 'normal'); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
   doc.text('Jika terjadi kesalahan nominal bisa menghubungi Admin', xTeks, y + 4);
 
