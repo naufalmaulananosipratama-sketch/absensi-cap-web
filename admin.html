@@ -2327,7 +2327,7 @@ function tampilkanQr(kode, judul, label) {
   const box = document.getElementById('qr-canvas-box');
   box.innerHTML = '';
   new QRCode(box, { text: kode, width: 220, height: 220 });
-  document.getElementById('btn-download-qr').onclick = () => unduhTemplateQr(kode, judul, label, 'QR_' + judul.replace(/[^a-z0-9]+/gi, '_'), kode);
+  document.getElementById('btn-download-qr').onclick = () => unduhTemplateQr(kode, judul, label, 'QR_' + judul.replace(/[^a-z0-9]+/gi, '_'), kode, namaKlienAktif);
   document.getElementById('qr-modal').classList.remove('hidden');
 }
 function tutupQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
@@ -2582,7 +2582,7 @@ async function downloadSemuaQr(key) {
     for (const d of daftar) {
       const judul = String(d[cfg.qrJudulField] || 'QR');
       const kodeAsli = String(d[cfg.qrField]);
-      const canvas = await buatCanvasTemplateQr(kodeAsli, judul, cfg.qrBadge || 'QR', kodeAsli);
+      const canvas = await buatCanvasTemplateQr(kodeAsli, judul, cfg.qrBadge || 'QR', kodeAsli, namaKlienAktif);
       const blob = await canvasKeBlob(canvas);
       let namaFile = judul.replace(/[^a-zA-Z0-9]+/g, '_');
       let urutan = 1;
