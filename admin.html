@@ -721,7 +721,6 @@
             <div id="qrweb-box" style="margin-top:16px; display:none;"></div>
             <div id="qrweb-kode" class="muted mono" style="font-size:12.5px; margin-top:6px;"></div>
             <button class="btn btn-outline hidden" id="btn-download-qrweb" style="width:auto;">Download PNG</button>
-            <button class="btn btn-outline hidden" id="btn-download-qrweb-pdf" style="width:auto;">PDF Cetak A5</button>
           </div>
         </div>
       </div>
@@ -772,7 +771,6 @@
     <div id="qr-canvas-box"></div>
     <div style="display:flex; gap:8px; margin-top:14px;">
       <button class="btn btn-navy" id="btn-download-qr" style="margin-top:0;">Download PNG</button>
-      <button class="btn btn-outline" id="btn-download-qr-pdf" style="margin-top:0;">PDF Cetak A5</button>
       <button class="btn btn-outline" style="margin-top:0;" onclick="tutupQrModal()">Tutup</button>
     </div>
   </div>
@@ -2330,12 +2328,11 @@ function tampilkanQr(kode, judul, label) {
   box.innerHTML = '';
   new QRCode(box, { text: kode, width: 220, height: 220 });
   document.getElementById('btn-download-qr').onclick = () => unduhTemplateQr(kode, judul, label, 'QR_' + judul.replace(/[^a-z0-9]+/gi, '_'), kode);
-  document.getElementById('btn-download-qr-pdf').onclick = () => unduhCetakQr(kode, judul, label, 'Cetak_QR_' + judul.replace(/[^a-z0-9]+/gi, '_'), kode);
   document.getElementById('qr-modal').classList.remove('hidden');
 }
 function tutupQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
 
-// ---------- TEMPLATE QR SIAP TEMPEL (LOGO + NAMA PERUSAHAAN) — gaya gelap modern + versi cetak
+// ---------- TEMPLATE QR SIAP TEMPEL (LOGO + NAMA PERUSAHAAN) — gaya gelap modern, proporsi 560:740
 // Kartu QR baru PT Cakra Adidaya Perkasa: titik membulat, mata QR merah, logo di tengah (ECC Q), resolusi 2x untuk cetak.
 const LABEL_INSTRUKSI = { ABSENSI: 'Scan kode QR ini untuk Absensi', PATROLI: 'Scan kode QR ini untuk Absen Patroli', TUGAS: 'Scan kode QR ini untuk Absen Tugas' };
 
@@ -2467,7 +2464,7 @@ function buatCanvasTemplateQr(kode, judul, label, kodeReferensi, lokasi, opsi) {
         try { if (document.fonts && document.fonts.load) await Promise.all(['500', '600', '700', '800'].map((w) => document.fonts.load(w + ' 16px "Plus Jakarta Sans"'))); } catch (_) {}
         const S = 2, W = 560, TILE = opsi.tile || '#f1ecee';
         const ADA_LOK = !!(lokasi && String(lokasi).trim()), ADA_KON = !!(opsi.kontak && String(opsi.kontak).trim());
-        const tile = 436, ty = ADA_LOK ? 292 : 262, H = ty + tile + (ADA_KON ? 170 : 134);
+        const tile = 380, ty = ADA_LOK ? 246 : 228, H = 740;
         const canvas = document.createElement('canvas');
         canvas.width = W * S; canvas.height = H * S;
         const ctx = canvas.getContext('2d');
@@ -2488,11 +2485,11 @@ function buatCanvasTemplateQr(kode, judul, label, kodeReferensi, lokasi, opsi) {
         }
 
         // kepala: roda logo (lebih besar) + nama perusahaan
-        const utuh = logoUtuhGelap(logo), lh = 84, lw = lh * utuh.width / utuh.height;
-        ctx.drawImage(utuh, 38, 28, lw, lh);
+        const utuh = logoUtuhGelap(logo), lh = 70, lw = lh * utuh.width / utuh.height;
+        ctx.drawImage(utuh, 38, 24, lw, lh);
         ctx.textAlign = 'left'; ctx.fillStyle = '#f6f0f2'; ctx.font = '700 13px ' + FONT;
-        teksJarak(ctx, 'PT CAKRA ADIDAYA PERKASA', 40 + lw + 18, 64, 1.6);
-        ctx.fillStyle = '#9a9099'; ctx.font = '500 12px ' + FONT; ctx.fillText('Sistem Absensi Karyawan', 40 + lw + 18, 85);
+        teksJarak(ctx, 'PT CAKRA ADIDAYA PERKASA', 40 + lw + 18, 58, 1.6);
+        ctx.fillStyle = '#9a9099'; ctx.font = '500 12px ' + FONT; ctx.fillText('Sistem Absensi Karyawan', 40 + lw + 18, 78);
         ctx.font = '700 11.5px ' + FONT;
         try { ctx.letterSpacing = '2px'; } catch (_) {}
         const tw = ctx.measureText(label).width + 30; try { ctx.letterSpacing = '0px'; } catch (_) {}
@@ -2501,18 +2498,18 @@ function buatCanvasTemplateQr(kode, judul, label, kodeReferensi, lokasi, opsi) {
         ctx.fillStyle = '#ffffff'; teksJarak(ctx, label, W - 40 - tw + 15, 64.5, 2);
 
         // judul + satu petunjuk + lokasi
-        let fs = 40; ctx.font = '800 ' + fs + 'px ' + FONT;
+        let fs = 36; ctx.font = '800 ' + fs + 'px ' + FONT;
         while (ctx.measureText(judul).width > W - 80 && fs > 24) { fs -= 2; ctx.font = '800 ' + fs + 'px ' + FONT; }
         const ag = ctx.createLinearGradient(40, 0, 100, 0); ag.addColorStop(0, '#ff5a5f'); ag.addColorStop(1, '#b42323');
-        ctx.fillStyle = ag; rr(ctx, 40, 136, 44, 5, 2.5); ctx.fill();
-        const jg = ctx.createLinearGradient(40, 150, 40, 200); jg.addColorStop(0, '#ffffff'); jg.addColorStop(1, '#ffd9dc');
-        ctx.fillStyle = jg; ctx.fillText(judul, 40, 190);
+        ctx.fillStyle = ag; rr(ctx, 40, 116, 44, 5, 2.5); ctx.fill();
+        const jg = ctx.createLinearGradient(40, 130, 40, 172); jg.addColorStop(0, '#ffffff'); jg.addColorStop(1, '#ffd9dc');
+        ctx.fillStyle = jg; ctx.fillText(judul, 40, 168);
         ctx.fillStyle = '#b3a9af'; ctx.font = '500 15px ' + FONT;
-        ctx.fillText(LABEL_INSTRUKSI[label] || ('Scan kode QR ini untuk ' + label), 40, 220);
+        ctx.fillText(LABEL_INSTRUKSI[label] || ('Scan kode QR ini untuk ' + label), 40, 196);
         if (ADA_LOK) {
-          ikonPin(ctx, 46, 254, '#ff5a5f');
+          ikonPin(ctx, 46, 229, '#ff5a5f');
           ctx.fillStyle = '#f3ecef'; ctx.font = '600 14px ' + FONT;
-          ctx.fillText(ellipsisTeks(ctx, lokasi, W - 120), 62, 253);
+          ctx.fillText(ellipsisTeks(ctx, lokasi, W - 120), 62, 228);
         }
 
         // kartu QR dengan cahaya merah di belakangnya
@@ -2534,84 +2531,20 @@ function buatCanvasTemplateQr(kode, judul, label, kodeReferensi, lokasi, opsi) {
         gambarQr(ctx, mx, qx, qy, qs, ge, '#14121a', besar ? logo : null);
 
         // menu langkah di bawah QR: kartu kaca
-        const yb = ty + tile, st = LANGKAH[label] || LANGKAH.ABSENSI, kol = (W - 80) / 3, cy0 = yb + 30, ch0 = 80;
+        const yb = ty + tile, st = LANGKAH[label] || LANGKAH.ABSENSI, kol = (W - 80) / 3, cy0 = yb + 22, ch0 = 64;
         ctx.save(); ctx.fillStyle = 'rgba(255,255,255,.055)'; rr(ctx, 40, cy0, W - 80, ch0, 22); ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,.13)'; ctx.lineWidth = 1; rr(ctx, 40.5, cy0 + 0.5, W - 81, ch0 - 1, 22); ctx.stroke(); ctx.restore();
         st.forEach((l, i) => {
           const x0 = 40 + i * kol, cyc = cy0 + ch0 / 2;
-          ctx.strokeStyle = '#ff6a6f'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x0 + 30, cyc, 13, 0, Math.PI * 2); ctx.stroke();
+          ctx.strokeStyle = '#ff6a6f'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x0 + 30, cyc, 12, 0, Math.PI * 2); ctx.stroke();
           ctx.fillStyle = 'rgba(255,90,95,.14)'; ctx.fill();
           ctx.textAlign = 'center'; ctx.fillStyle = '#ff8a8e'; ctx.font = '700 12.5px ' + FONT; ctx.fillText(String(i + 1), x0 + 30, cyc + 4.5);
-          ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff'; ctx.font = '700 15px ' + FONT; ctx.fillText(l[0], x0 + 52, cyc - 3);
+          ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff'; ctx.font = '700 15px ' + FONT; ctx.fillText(l[0], x0 + 52, cyc - 2);
           ctx.fillStyle = '#a79da4'; ctx.font = '500 11.5px ' + FONT; ctx.fillText(ellipsisTeks(ctx, l[1], kol - 62), x0 + 52, cyc + 15);
-          if (i < 2) { ctx.fillStyle = 'rgba(255,255,255,.13)'; ctx.fillRect(x0 + kol, cy0 + 18, 1, ch0 - 36); }
+          if (i < 2) { ctx.fillStyle = 'rgba(255,255,255,.13)'; ctx.fillRect(x0 + kol, cy0 + 14, 1, ch0 - 28); }
         });
-        if (ADA_KON) {
-          ctx.textAlign = 'center'; ctx.fillStyle = '#a89ea4'; ctx.font = '500 13px ' + FONT;
-          ctx.fillText(ellipsisTeks(ctx, opsi.kontak, W - 80), W / 2, yb + 138);
-        }
         const gb = ctx.createLinearGradient(0, 0, W, 0); gb.addColorStop(0, 'rgba(180,35,35,0)'); gb.addColorStop(0.5, '#e23a3a'); gb.addColorStop(1, 'rgba(180,35,35,0)');
         ctx.fillStyle = gb; ctx.fillRect(0, H - 3, W, 3);
-        resolve(canvas);
-      } catch (e) { reject(e); }
-    };
-    logo.onerror = () => reject(new Error('Logo perusahaan gagal dimuat'));
-    logo.src = 'logo-watermark.png';
-  });
-}
-
-// ===== VERSI CETAK (terang, kontras tinggi, 4x) =====
-function buatCanvasCetakQr(kode, judul, label, kodeReferensi, lokasi, opsi) {
-  opsi = opsi || {};
-  return new Promise((resolve, reject) => {
-    const logo = new Image();
-    logo.onload = async () => {
-      try {
-        try { if (document.fonts && document.fonts.load) await Promise.all(['500', '600', '700', '800'].map((w) => document.fonts.load(w + ' 16px "Plus Jakarta Sans"'))); } catch (_) {}
-        const S = 4, W = 560, H = 795, MERAH = '#9b1c1c', INK = '#111114';
-        const ADA_LOK = !!(lokasi && String(lokasi).trim()), ADA_KON = !!(opsi.kontak && String(opsi.kontak).trim());
-        const canvas = document.createElement('canvas');
-        canvas.width = W * S; canvas.height = H * S;
-        const ctx = canvas.getContext('2d');
-        ctx.scale(S, S); ctx.imageSmoothingQuality = 'high';
-        window.QR_BG = '#ffffff';
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = MERAH; ctx.fillRect(0, 0, W, 12);
-
-        const lh = 66, lw = lh * logo.naturalWidth / logo.naturalHeight;
-        ctx.drawImage(logo, 40, 40, lw, lh);
-        ctx.textAlign = 'left'; ctx.fillStyle = MERAH; ctx.font = '800 13.5px ' + FONT;
-        teksJarak(ctx, 'PT CAKRA ADIDAYA PERKASA', 40 + lw + 16, 70, 1.4);
-        ctx.fillStyle = '#6b6670'; ctx.font = '500 12px ' + FONT; ctx.fillText('Sistem Absensi Karyawan', 40 + lw + 16, 90);
-        ctx.font = '800 11.5px ' + FONT;
-        try { ctx.letterSpacing = '2px'; } catch (_) {}
-        const tw = ctx.measureText(label).width + 30; try { ctx.letterSpacing = '0px'; } catch (_) {}
-        ctx.fillStyle = MERAH; rr(ctx, W - 40 - tw, 54, tw, 28, 14); ctx.fill();
-        ctx.fillStyle = '#ffffff'; teksJarak(ctx, label, W - 40 - tw + 15, 72.5, 2);
-
-        let fs = 38; ctx.font = '800 ' + fs + 'px ' + FONT;
-        while (ctx.measureText(judul).width > W - 80 && fs > 24) { fs -= 2; ctx.font = '800 ' + fs + 'px ' + FONT; }
-        ctx.fillStyle = MERAH; rr(ctx, 40, 150, 44, 5, 2.5); ctx.fill();
-        ctx.fillStyle = INK; ctx.fillText(judul, 40, 203);
-        ctx.fillStyle = '#6b6670'; ctx.font = '500 14.5px ' + FONT;
-        ctx.fillText(LABEL_INSTRUKSI[label] || ('Scan kode QR ini untuk ' + label), 40, 231);
-        let yq = 262;
-        if (ADA_LOK) {
-          ikonPin(ctx, 46, 266, MERAH);
-          ctx.fillStyle = INK; ctx.font = '700 14px ' + FONT; ctx.fillText(ellipsisTeks(ctx, lokasi, W - 120), 62, 266);
-          yq = 294;
-        }
-        const mx = matriksQr(kode), besar = mx.length >= 37, tile = 408;
-        const cellPx = Math.max(5, Math.floor((tile - 60) / mx.length)), qs = cellPx * mx.length;
-        const tx = (W - tile) / 2, ty = yq;
-        ctx.strokeStyle = '#d8d3d6'; ctx.lineWidth = 1.5; rr(ctx, tx, ty, tile, tile, 26); ctx.stroke();
-        const qx = tx + (tile - qs) / 2, qy = ty + (tile - qs) / 2;
-        gambarQr(ctx, mx, qx, qy, qs, MERAH, INK, besar ? logo : null);
-        if (ADA_KON) {
-          ctx.textAlign = 'center'; ctx.fillStyle = '#6b6670'; ctx.font = '500 13px ' + FONT;
-          ctx.fillText(ellipsisTeks(ctx, opsi.kontak, W - 80), W / 2, ty + tile + 44);
-        }
-        ctx.fillStyle = MERAH; ctx.fillRect(0, H - 8, W, 8);
         resolve(canvas);
       } catch (e) { reject(e); }
     };
@@ -2627,16 +2560,6 @@ function unduhTemplateQr(kode, judul, label, namaFile, kodeReferensi, lokasi) {
     a.download = namaFile + '.png';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }).catch((e) => showToast('Gagal membuat template QR: ' + e.message, false));
-}
-
-// Versi cetak: latar putih, QR hitam kontras tinggi, resolusi 4x, disimpan sebagai PDF A5
-function unduhCetakQr(kode, judul, label, namaFile, kodeReferensi, lokasi) {
-  buatCanvasCetakQr(kode, judul, label, kodeReferensi, lokasi).then((canvas) => {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'mm', format: [148, 210], orientation: 'portrait', compress: true });
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 148, 210, undefined, 'FAST');
-    doc.save(namaFile + '_A5.pdf');
-  }).catch((e) => showToast('Gagal membuat PDF cetak: ' + e.message, false));
 }
 
 function canvasKeBlob(canvas) {
@@ -3150,9 +3073,6 @@ document.getElementById('btn-generate-qrweb').addEventListener('click', () => {
   const btnDl = document.getElementById('btn-download-qrweb');
   btnDl.classList.remove('hidden');
   btnDl.onclick = () => unduhTemplateQr(link, 'Akses Web Karyawan', 'ABSENSI', 'QR_Akses_Web_Karyawan', kodeQrAbsensi, namaKlienAktif);
-  const btnPdf = document.getElementById('btn-download-qrweb-pdf');
-  btnPdf.classList.remove('hidden');
-  btnPdf.onclick = () => unduhCetakQr(link, 'Akses Web Karyawan', 'ABSENSI', 'Cetak_QR_Akses_Web_Karyawan', kodeQrAbsensi, namaKlienAktif);
 });
 
 function escapeHtml(s) {
